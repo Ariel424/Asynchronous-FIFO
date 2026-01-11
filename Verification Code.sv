@@ -28,7 +28,7 @@ endclass
 
 // Generator Class (NEW - produces transactions)
 class FIFO_generator;
-  mailbox #(FIFO_transaction) mbx;  // Handle to mailbox
+  mailbox #(FIFO_transaction) gen2drv;  // Handle to mailbox
   FIFO_transaction tr;              // Transaction handle (reused)
   int num_transactions;
   
