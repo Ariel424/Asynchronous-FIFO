@@ -4,10 +4,7 @@ class FIFO_transaction;
   rand bit [7:0] data;
   rand bit write;
   rand bit read;
-  
-  // Transaction handle - each instance has its own
-  FIFO_transaction tr;
-  
+
   constraint c_write_read {
     write dist {1 := 70, 0 := 30};
     read dist {1 := 70, 0 := 30};
@@ -15,6 +12,7 @@ class FIFO_transaction;
   
   // Copy function using handle
   function FIFO_transaction copy();
+    FIFO_transaction tr;
     tr = new();
     tr.data = this.data;
     tr.write = this.write;
