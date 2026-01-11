@@ -29,13 +29,13 @@ endclass
 // Generator Class (NEW - produces transactions)
 class FIFO_generator;
   mailbox #(FIFO_transaction) gen2drv;  // Handle to mailbox
-  FIFO_transaction tr;              // Transaction handle (reused)
+  event drv_done;    // event for synchonization 
   int num_transactions;
   
-  function new(mailbox #(FIFO_transaction) mbx, int num_txns = 100);
-    this.mbx = mbx;  // Store mailbox handle
-    this.num_transactions = num_txns;
-    tr = new();      // Create transaction handle once
+  function new(mailbox #(FIFO_transaction) gen2drv, event drv_done, int num_txns = 100);
+    this.gen2drv = gen2drv;  // Store mailbox handle
+    this.drv_done = drv_done;
+    this.num_transaction = num_txns;
   endfunction
   
   task run();
