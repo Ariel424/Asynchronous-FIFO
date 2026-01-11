@@ -39,32 +39,36 @@ class FIFO_generator;
   endfunction
   
   task run();
+   FIFO_transaction tr = new(); 
     repeat(num_transactions) begin
       assert(tr.randomize()) else $error("Randomization failed");
-      mbx.put(tr);
+      gen2drv.put(tr.copy());  
       tr.display("GENERATOR");
+      @(drv_done); 
     end
     $display("[%0t] Generator: Completed %0d transactions", $time, num_transactions);
   endtask
-endclass
 
 // Driver Class
 class FIFO_driver;
   virtual ASYNC_FIFO_if vif;           // Handle to virtual interface
-  mailbox #(FIFO_transaction) mbx;     // Handle to mailbox
-  FIFO_transaction tr;                 // Transaction handle (reused)
+  mailbox #(FIFO_transaction) gen2drv;     // Handle to mailbox
+  event drv_done;                 // Transaction handle (reused)
   
-  function new(mailbox #(FIFO_transaction) mbx, virtual ASYNC_FIFO_if vif);
-    this.mbx = mbx;  // Store mailbox handle
+  function new(mailbox #(FIFO_transaction) gen2drv, virtual ASYNC_FIFO_if vif, event drv_done);
+    this.gen2drv = gen2drv;  // Store mailbox handle
     this.vif = vif;  // Store interface handle
+    this.drv_done = drv_done;
   endfunction
   
   task run();
     forever begin
-      mbx.get(tr);  // Get transaction from mailbox via handle
+      transaction tr;
+      gen2drv.get(tr); 
       drive_write(tr);
       drive_read(tr);
       tr.display("DRIVER");
+      -> drv_done;
     end
   endtask
   
