@@ -91,10 +91,10 @@ class FIFO_monitor;
   mailbox #(FIFO_transaction) mbx_read;     // Handle to read mailbox
   FIFO_transaction tr;                      // Transaction handle (reused)
   
-  function new(virtual ASYNC_FIFO_if vif);
+  function new(virtual ASYNC_FIFO_if vif, mailbox #(FIFO_transaction) mbx_write, mailbox #(FIFO_transaction) mbx_read);
     this.vif = vif;  // Store interface handle
-    mbx_write = new();  // Create and store write mailbox handle
-    mbx_read = new();   // Create and store read mailbox handle
+    this.mbx_write = mbx_write;  // Create and store write mailbox handle
+    this.mbx_read = mbx_read;   // Create and store read mailbox handle
   endfunction
   
   task run();
