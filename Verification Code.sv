@@ -61,17 +61,6 @@ class FIFO_driver;
     this.drv_done = drv_done;
   endfunction
   
-  task run();
-    forever begin
-      FIFO_transaction tr = new(); 
-      gen2drv.get(tr); 
-      drive_write(tr);
-      drive_read(tr);
-      tr.display("DRIVER");
-      -> drv_done;
-    end
-  endtask
-  
   task drive_write(FIFO_transaction tr);
     @(posedge vif.WClk);
     vif.Write = tr.write;
@@ -83,6 +72,17 @@ class FIFO_driver;
     vif.Read = tr.read;
   endtask
 endclass
+
+   task run();
+    forever begin
+      FIFO_transaction tr = new(); 
+      gen2drv.get(tr); 
+      drive_write(tr);
+      drive_read(tr);
+      tr.display("DRIVER");
+      -> drv_done;
+    end
+  endtask
 
 // Monitor Class
 class FIFO_monitor;
