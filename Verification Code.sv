@@ -63,7 +63,7 @@ class FIFO_driver;
   
   task run();
     forever begin
-      transaction tr;
+      FIFO_transaction tr = new(); 
       gen2drv.get(tr); 
       drive_write(tr);
       drive_read(tr);
