@@ -30,12 +30,12 @@ endclass
 class FIFO_generator;
   mailbox #(FIFO_transaction) gen2drv;  // Handle to mailbox
   event drv_done;    // event for synchonization 
-  int num_transactions;
+  int num_transactions;  
   
   function new(mailbox #(FIFO_transaction) gen2drv, event drv_done, int num_transactio = 100);
     this.gen2drv = gen2drv;  // Store mailbox handle
     this.drv_done = drv_done;
-    this.num_transaction = num_transactio;
+    this.num_transaction = num_transaction;
   endfunction
   
   task run();
