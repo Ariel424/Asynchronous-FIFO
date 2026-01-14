@@ -89,7 +89,6 @@ class FIFO_monitor;
   virtual ASYNC_FIFO_if vif;                // Handle to virtual interface
   mailbox #(FIFO_transaction) mbx_write;    // Handle to write mailbox
   mailbox #(FIFO_transaction) mbx_read;     // Handle to read mailbox
-  FIFO_transaction tr;                      // Transaction handle (reused)
   
   function new(virtual ASYNC_FIFO_if vif, mailbox #(FIFO_transaction) mbx_write, mailbox #(FIFO_transaction) mbx_read);
     this.vif = vif;  // Store interface handle
@@ -108,7 +107,7 @@ class FIFO_monitor;
     forever begin
       @(posedge vif.WClk);
       if (vif.Write && !vif.Full) begin
-        tr = new();
+        FIFO_transaction tr = new();
         tr.data = vif.Data_in;
         tr.write = 1;
         mbx_write.put(tr);  // Send via mailbox handle
@@ -122,7 +121,7 @@ class FIFO_monitor;
       @(posedge vif.RClk);
       if (vif.Read && !vif.Empty) begin
         @(posedge vif.RClk); // Wait for output
-        tr = new();
+        FIFO_transaction tr = new();
         tr.data = vif.Data_out;
         tr.read = 1;
         mbx_read.put(tr);  // Send via mailbox handle
@@ -136,8 +135,6 @@ endclass
 class FIFO_scoreboard;
   mailbox #(FIFO_transaction) mbx_write;  // Handle to write mailbox
   mailbox #(FIFO_transaction) mbx_read;   // Handle to read mailbox
-  FIFO_transaction tr_write;  
-  FIFO_transaction tr_read;
   FIFO_transaction write_queue[$];
   int match_count = 0;
   int mismatch_count = 0;
@@ -156,14 +153,16 @@ class FIFO_scoreboard;
   
   task collect_write();
     forever begin
+      FIFO_transaction tr = new();
       mbx_write.get(tr);  // Receive via mailbox handle
       write_queue.push_back(tr);
     end
   endtask
   
   task check_read();
-    FIFO_transaction txn_expected;
     forever begin
+      FIFO_transaction tr = new();
+      FIFO_transaction txn_expected;
       mbx_read.get(tr);  // Receive via mailbox handle
       if (write_queue.size() > 0) begin
         txn_expected = write_queue.pop_front();
