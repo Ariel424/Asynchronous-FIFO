@@ -136,7 +136,8 @@ endclass
 class FIFO_scoreboard;
   mailbox #(FIFO_transaction) mbx_write;  // Handle to write mailbox
   mailbox #(FIFO_transaction) mbx_read;   // Handle to read mailbox
-  FIFO_transaction tr;                    // Transaction handle (reused)
+  FIFO_transaction tr_write;  
+  FIFO_transaction tr_read;
   FIFO_transaction write_queue[$];
   int match_count = 0;
   int mismatch_count = 0;
