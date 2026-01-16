@@ -12,8 +12,7 @@ class FIFO_transaction;
   
   // Copy function using handle
   function FIFO_transaction copy();
-    FIFO_transaction tr;
-    tr = new();
+    FIFO_transaction tr = new();
     tr.data = this.data;
     tr.write = this.write;
     tr.read = this.read;
@@ -39,8 +38,8 @@ class FIFO_generator;
   endfunction
   
   task run();
-   FIFO_transaction tr = new(); 
     repeat(num_transactions) begin
+      FIFO_transaction tr = new(); 
       assert(tr.randomize()) else $error("Randomization failed");
       gen2drv.put(tr.copy());  
       tr.display("GENERATOR");
@@ -48,6 +47,7 @@ class FIFO_generator;
     end
     $display("[%0t] Generator: Completed %0d transactions", $time, num_transactions);
   endtask
+endclass
 
 // Driver Class
 class FIFO_driver;
@@ -63,7 +63,7 @@ class FIFO_driver;
   
   task run();
     forever begin
-      FIFO_transaction tr = new(); 
+      FIFO_transaction tr;
       gen2drv.get(tr); 
       drive_write(tr);
       drive_read(tr);
