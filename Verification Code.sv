@@ -161,8 +161,8 @@ class FIFO_scoreboard;
   
   task check_read();
     forever begin
-      FIFO_transaction tr = new();
-      FIFO_transaction txn_expected;
+      FIFO_transaction tr = new(); // bug? not this new()?
+      FIFO_transaction txn_expected; // new handle?
       mbx_read.get(tr);  // Receive via mailbox handle
       if (write_queue.size() > 0) begin
         txn_expected = write_queue.pop_front();
