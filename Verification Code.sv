@@ -139,9 +139,9 @@ class FIFO_scoreboard;
   int match_count = 0;
   int mismatch_count = 0;
   
-  function new(mailbox #(FIFO_transaction) mbx_w, mailbox #(FIFO_transaction) mbx_r);
-    this.mbx_write = mbx_w;  // Store write mailbox handle
-    this.mbx_read = mbx_r;   // Store read mailbox handle
+  function new(mailbox #(FIFO_transaction) mbx_write, mailbox #(FIFO_transaction) mbx_read);
+    this.mbx_write = mbx_write;  // Store write mailbox handle
+    this.mbx_read = mbx_read;   // Store read mailbox handle
   endfunction
   
   task run();
