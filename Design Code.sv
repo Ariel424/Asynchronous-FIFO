@@ -8,9 +8,9 @@ module ASYNC_FIFO (
     output Empty
 );
 
-  reg [7:0] Mem [15:0];
-  reg [4:0] WPtr = 0, WGray = 0, RGrayS1 = 0, RGrayS2 = 0;
-  reg [4:0] RPtr = 0, RGray = 0, WGrayS1 = 0, WGrayS2 = 0;
+  logic [7:0] Mem [15:0];
+  logic [4:0] WPtr = 0, WGray = 0, RGrayS1 = 0, RGrayS2 = 0;
+  logic [4:0] RPtr = 0, RGray = 0, WGrayS1 = 0, WGrayS2 = 0;
   
   // Binary to Gray
   function [4:0] b2g;
@@ -19,7 +19,7 @@ module ASYNC_FIFO (
   endfunction
   
   // Write domain
-  always @(posedge WClk) begin
+  always_ff @(posedge WClk) begin
     if (WReset) begin
       WPtr <= 0; WGray <= 0; RGrayS1 <= 0; RGrayS2 <= 0;
     end
