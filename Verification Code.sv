@@ -1,18 +1,18 @@
-// Transaction Class
-class FIFO_transaction;
-  // Data members
+// --- Transaction Class ---
+class my_transaction;
+
   rand bit [7:0] data;
   rand bit write;
   rand bit read;
 
+  constraint c_data {data {[8'h00 : 8'hFF]}; } 
   constraint c_write_read {
     write dist {1 := 70, 0 := 30};
     read dist {1 := 70, 0 := 30};
   }
   
-  // Copy function using handle
-  function FIFO_transaction copy();
-    FIFO_transaction tr = new();
+  function transaction copy();
+   my_transaction tr = new();
     tr.data = this.data;
     tr.write = this.write;
     tr.read = this.read;
@@ -25,22 +25,22 @@ class FIFO_transaction;
   endfunction
 endclass
 
-// Generator Class (NEW - produces transactions)
-class FIFO_generator;
-  mailbox #(FIFO_transaction) gen2drv;  // Handle to mailbox
-  event drv_done;    // event for synchonization 
+// --- Generator ---
+class my_generator;
+  mailbox #(transaction) gen2drv;      
   int num_transactions;  
+  event drv_done;
   
-  function new(mailbox #(FIFO_transaction) gen2drv, event drv_done, int num_transactions = 100);
-    this.gen2drv = gen2drv;  // Store mailbox handle
+  function new(mailbox #(my_transaction) gen2drv, event drv_done, int num_transactions = 100);
+    this.gen2drv = gen2drv; 
     this.drv_done = drv_done;
     this.num_transactions = num_transactions;
   endfunction
   
   task run();
     repeat(num_transactions) begin
-      FIFO_transaction tr = new(); 
-      assert(tr.randomize()) else $error("Randomization failed");
+      my_transaction tr = new(); 
+      assert(tr.randomize()) else $fatal("Randomization failed");
       gen2drv.put(tr.copy());  
       tr.display("GENERATOR");
       @(drv_done); 
@@ -50,10 +50,10 @@ class FIFO_generator;
 endclass
 
 // Driver Class
-class FIFO_driver;
-  virtual ASYNC_FIFO_if vif;           // Handle to virtual interface
-  mailbox #(FIFO_transaction) gen2drv;     // Handle to mailbox
-  event drv_done;                 // Transaction handle (reused)
+class my_driver;
+  virtual my_interface vif;          
+  mailbox #(my_transaction) gen2drv;    
+  event drv_done;               
   
   function new(mailbox #(FIFO_transaction) gen2drv, virtual ASYNC_FIFO_if vif, event drv_done);
     this.gen2drv = gen2drv;  // Store mailbox handle
@@ -63,7 +63,7 @@ class FIFO_driver;
   
   task run();
     forever begin
-      FIFO_transaction tr;
+      my_transaction tr;
       gen2drv.get(tr); 
       drive_write(tr);
       drive_read(tr);
@@ -72,13 +72,13 @@ class FIFO_driver;
     end
   endtask
   
-  task drive_write(FIFO_transaction tr);
+  task drive_write(my_transaction);
     @(posedge vif.WClk);
     vif.Write = tr.write;
     vif.Data_in = tr.data;
   endtask
   
-  task drive_read(FIFO_transaction tr);
+  task drive_read(my_transaction);
     @(posedge vif.RClk);
     vif.Read = tr.read;
   endtask
