@@ -22,8 +22,8 @@ clocking r_cb @(posedge rclk);
     input  empty;
  endclocking
 
-modport DRIVER (clocking w_cb, clocking r_cb, output wreset output rreset);
-modport W_MONITOR (clocking w_cb, input wreset);
-modport R_MONITOR (clocking r_cb, input rreset);
+modport DRIVER_MP (clocking w_cb, clocking r_cb, output wreset output rreset);
+modport W_MONITOR_MP (clocking w_cb, input wreset);
+modport R_MONITOR_MP (clocking r_cb, input rreset);
     
 endinterface 
