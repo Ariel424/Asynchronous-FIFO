@@ -100,10 +100,7 @@ class my_monitor;
     mailbox #(my_transaction) mbx_write; 
     mailbox #(my_transaction) mbx_read;  
     
-    function new(virtual my_interface.W_MONITOR w_vif, 
-                 virtual my_interface.R_MONITOR r_vif, 
-                 mailbox #(my_transaction) mbx_write, 
-                 mailbox #(my_transaction) mbx_read);
+    function new(virtual my_interface.W_MONITOR w_vif, virtual my_interface.R_MONITOR r_vif, mailbox #(my_transaction) mbx_write, mailbox #(my_transaction) mbx_read);
         this.w_vif = w_vif;
         this.r_vif = r_vif;
         this.mbx_write = mbx_write;
@@ -133,7 +130,6 @@ class my_monitor;
         forever begin
             @(r_vif.r_cb);
             if (r_vif.r_cb.read && !r_vif.r_cb.empty) begin
-                // מחכים מחזור נוסף כי המידע יוצא לאחר ה-Clock Edge
                 @(r_vif.r_cb); 
                 my_transaction tr = new();
                 tr.data = r_vif.r_cb.data_out;
@@ -173,11 +169,6 @@ class FIFO_scoreboard;
             end
         join
     endtask
-
-    function void report();
-        $display("--- Final Report: Matches=%0d, Mismatches=%0d ---", match_count, mismatch_count);
-    endfunction
-endclass
 
 class FIFO_environment;
     my_generator gen;
