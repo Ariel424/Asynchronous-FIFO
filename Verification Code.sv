@@ -1,7 +1,7 @@
 // --- Transaction Class ---
 class my_transaction;
 
-  rand bit [7:0] data;
+  rand bit [7:0] data_in;
   rand bit write;
   rand bit read;
 
@@ -25,7 +25,7 @@ class my_transaction;
   endfunction
 endclass
 
-// --- Generator ---
+// --- Generator Class ---
 class my_generator;
   mailbox #(transaction) gen2drv;      
   int num_transactions;  
@@ -49,15 +49,15 @@ class my_generator;
   endtask
 endclass
 
-// Driver Class
+// --- Driver class ---
 class my_driver;
-  virtual my_interface vif;          
+  virtual my_interface.DRIVER_MP vif;          
   mailbox #(my_transaction) gen2drv;    
   event drv_done;               
   
-  function new(mailbox #(FIFO_transaction) gen2drv, virtual ASYNC_FIFO_if vif, event drv_done);
-    this.gen2drv = gen2drv;  // Store mailbox handle
-    this.vif = vif;  // Store interface handle
+  function new(virtual my_interface.DRIVER_MP vif, mailbox #(my_transaction) gen2drv, event drv_done);
+    this.vif = vif; 
+    this.gen2drv = gen2drv;  
     this.drv_done = drv_done;
   endfunction
   
@@ -65,181 +65,151 @@ class my_driver;
     forever begin
       my_transaction tr;
       gen2drv.get(tr); 
+      
+      fork 
       drive_write(tr);
       drive_read(tr);
-      tr.display("DRIVER");
+      join
+      
       -> drv_done;
     end
   endtask
   
-  task drive_write(my_transaction);
-    @(posedge vif.WClk);
-    vif.Write = tr.write;
-    vif.Data_in = tr.data;
+  task drive_write(my_transaction tr);
+    @(vif.w_cb);
+    vif.w_cb.write <= tr.write;
+    vif.w_cb.data_in = tr.data_in;
   endtask
   
-  task drive_read(my_transaction);
-    @(posedge vif.RClk);
-    vif.Read = tr.read;
-  endtask
-endclass
-
-// Monitor Class
-class FIFO_monitor;
-  virtual ASYNC_FIFO_if vif;                // Handle to virtual interface
-  mailbox #(FIFO_transaction) mbx_write;    // Handle to write mailbox
-  mailbox #(FIFO_transaction) mbx_read;     // Handle to read mailbox
-  
-  function new(virtual ASYNC_FIFO_if vif, mailbox #(FIFO_transaction) mbx_write, mailbox #(FIFO_transaction) mbx_read);
-    this.vif = vif;  // Store interface handle
-    this.mbx_write = mbx_write;  // Create and store write mailbox handle
-    this.mbx_read = mbx_read;   // Create and store read mailbox handle
-  endfunction
-  
-  task run();
-    fork
-      monitor_write();
-      monitor_read();
-    join
-  endtask
-  
-  task monitor_write();
-    forever begin
-      @(posedge vif.WClk);
-      if (vif.Write && !vif.Full) begin
-        FIFO_transaction tr = new();
-        tr.data = vif.Data_in;
-        tr.write = 1;
-        mbx_write.put(tr);  // Send via mailbox handle
-        $display("[%0t] MONITOR_WRITE: Data=0x%0h", $time, tr.data);
-      end
-    end
-  endtask
-  
-  task monitor_read();
-    forever begin
-      @(posedge vif.RClk);
-      if (vif.Read && !vif.Empty) begin
-        @(posedge vif.RClk); // Wait for output
-        FIFO_transaction tr = new();
-        tr.data = vif.Data_out;
-        tr.read = 1;
-        mbx_read.put(tr);  // Send via mailbox handle
-        $display("[%0t] MONITOR_READ: Data=0x%0h", $time, tr.data);
-      end
-    end
+  task drive_read(my_transaction tr);
+    @(vif.r_cb);
+    vif.r_cb.read <= tr.read;
   endtask
 endclass
 
-// Scoreboard Class
-class FIFO_scoreboard;
-  mailbox #(FIFO_transaction) mbx_write;  // Handle to write mailbox
-  mailbox #(FIFO_transaction) mbx_read;   // Handle to read mailbox
-  FIFO_transaction write_queue[$];
-  int match_count = 0;
-  int mismatch_count = 0;
+// --- Monitor Class ---
+class my_monitor;
+  virtual my_interface_W_MONITOR_MP w_vif;
+  virtual my_interface.R_MONITO_MP r_vif;
+  mailbox #(FIFO_transaction) mbx_write;    
+  mailbox #(FIFO_transaction) mbx_read;    
   
-  function new(mailbox #(FIFO_transaction) mbx_write, mailbox #(FIFO_transaction) mbx_read);
-    this.mbx_write = mbx_write;  // Store write mailbox handle
-    this.mbx_read = mbx_read;   // Store read mailbox handle
-  endfunction
-  
-  task run();
-    fork
-      collect_write();
-      check_read();
-    join
-  endtask
-  
-  task collect_write();
-    forever begin
-      FIFO_transaction tr = new();
-      mbx_write.get(tr);  // Receive via mailbox handle
-      write_queue.push_back(tr);
-    end
-  endtask
-  
-  task check_read();
-    forever begin
-      FIFO_transaction tr;
-      FIFO_transaction txn_expected; // new handle?
-      #1; // delay to avoid race condition
-      mbx_read.get(tr);  // Receive via mailbox handle
-      if (write_queue.size() > 0) begin
-        txn_expected = write_queue.pop_front();
-        if (tr.data == txn_expected.data) begin
-          match_count++;
-          $display("[%0t] SCOREBOARD MATCH: Expected=0x%0h Got=0x%0h", 
-                   $time, txn_expected.data, tr.data);
-        end else begin
-          mismatch_count++;
-          $display("[%0t] SCOREBOARD MISMATCH: Expected=0x%0h Got=0x%0h", 
-                   $time, txn_expected.data, tr.data);
+  class FIFO_monitor;
+    virtual my_interface.W_MONITOR w_vif; 
+    virtual my_interface.R_MONITOR r_vif;
+    mailbox #(my_transaction) mbx_write; 
+    mailbox #(my_transaction) mbx_read;  
+    
+    function new(virtual my_interface.W_MONITOR w_vif, 
+                 virtual my_interface.R_MONITOR r_vif, 
+                 mailbox #(my_transaction) mbx_write, 
+                 mailbox #(my_transaction) mbx_read);
+        this.w_vif = w_vif;
+        this.r_vif = r_vif;
+        this.mbx_write = mbx_write;
+        this.mbx_read = mbx_read;
+    endfunction
+    
+    task run();
+        fork
+            monitor_write();
+            monitor_read();
+        join
+    endtask
+    
+    task monitor_write();
+        forever begin
+            @(w_vif.w_cb);
+            if (w_vif.w_cb.write && !w_vif.w_cb.full) begin
+                my_transaction tr = new();
+                tr.data = w_vif.w_cb.data_in;
+                mbx_write.put(tr);
+                $display("[%0t] MONITOR_WRITE: Data=0x%0h", $time, tr.data);
+            end
         end
-      end else begin
-        $display("[%0t] SCOREBOARD ERROR: Read from empty FIFO", $time);
-        mismatch_count++;
-      end
-    end
-  endtask
-  
-  function void report();
-    $display("\n===== SCOREBOARD REPORT =====");
-    $display("Matches: %0d", match_count);
-    $display("Mismatches: %0d", mismatch_count);
-    $display("Remaining in queue: %0d", write_queue.size());
-    if (mismatch_count == 0)
-      $display("TEST PASSED");
-    else
-      $display("TEST FAILED");
-    $display("=============================\n");
-  endfunction
+    endtask
+    
+    task monitor_read();
+        forever begin
+            @(r_vif.r_cb);
+            if (r_vif.r_cb.read && !r_vif.r_cb.empty) begin
+                // מחכים מחזור נוסף כי המידע יוצא לאחר ה-Clock Edge
+                @(r_vif.r_cb); 
+                my_transaction tr = new();
+                tr.data = r_vif.r_cb.data_out;
+                mbx_read.put(tr);
+                $display("[%0t] MONITOR_READ: Data=0x%0h", $time, tr.data);
+            end
+        end
+    endtask
 endclass
 
-// Environment Class
+class FIFO_scoreboard;
+    mailbox #(my_transaction) mbx_write; 
+    mailbox #(my_transaction) mbx_read;   
+    my_transaction write_queue[$];
+    int match_count, mismatch_count;
+    
+    function new(mailbox #(my_transaction) mbx_write, mailbox #(my_transaction) mbx_read);
+        this.mbx_write = mbx_write;
+        this.mbx_read = mbx_read;
+    endfunction
+    
+    task run();
+        fork
+            forever begin
+                my_transaction tr;
+                mbx_write.get(tr);
+                write_queue.push_back(tr);
+            end
+            forever begin
+                my_transaction tr, txn_exp;
+                mbx_read.get(tr);
+                if (write_queue.size() > 0) begin
+                    txn_exp = write_queue.pop_front();
+                    if (tr.data == txn_exp.data) match_count++;
+                    else mismatch_count++;
+                end
+            end
+        join
+    endtask
+
+    function void report();
+        $display("--- Final Report: Matches=%0d, Mismatches=%0d ---", match_count, mismatch_count);
+    endfunction
+endclass
+
 class FIFO_environment;
-  FIFO_generator gen;                       // Handle to generator
-  FIFO_driver drv;                          // Handle to driver
-  FIFO_monitor mon;                         // Handle to monitor
-  FIFO_scoreboard scb;                      // Handle to scoreboard
-  mailbox #(FIFO_transaction) mbx_gen_drv; // Handle to gen->drv mailbox
-  virtual ASYNC_FIFO_if vif;                // Handle to virtual interface
-  
-  function new(virtual ASYNC_FIFO_if vif, int num_txns = 200);
-    this.vif = vif;  // Store interface handle
+    my_generator gen;
+    my_driver drv;
+    FIFO_monitor mon;
+    FIFO_scoreboard scb;
+    event drv_done;
+    mailbox #(my_transaction) mbx_gen_drv, mbx_mon_scb_w, mbx_mon_scb_r;
+    virtual my_interface vif;
     
-    // Create mailbox handle for generator->driver communication
-    mbx_gen_drv = new();
+    function new(virtual my_interface vif, int num_txns = 200);
+        this.vif = vif;
+        mbx_gen_drv  = new();
+        mbx_mon_scb_w = new();
+        mbx_mon_scb_r = new();
+        
+        gen = new(mbx_gen_drv, drv_done, num_txns);
+        drv = new(mbx_gen_drv, vif.DRIVER, drv_done);
+        mon = new(vif.W_MONITOR, vif.R_MONITOR, mbx_mon_scb_w, mbx_mon_scb_r);
+        scb = new(mbx_mon_scb_w, mbx_mon_scb_r);
+    endfunction
     
-    // Create component handles and pass necessary handles to them
-    gen = new(mbx_gen_drv, num_txns);        // Pass mailbox handle to generator
-    drv = new(mbx_gen_drv, vif);             // Pass mailbox and interface handles to driver
-    mon = new(vif);                          // Pass interface handle to monitor
-    scb = new(mon.mbx_write, mon.mbx_read);  // Pass monitor's mailbox handles to scoreboard
-    
-    $display("Environment created with handles:");
-    $display("  - Generator handle: %p", gen);
-    $display("  - Driver handle: %p", drv);
-    $display("  - Monitor handle: %p", mon);
-    $display("  - Scoreboard handle: %p", scb);
-  endfunction
-  
-  task run();
-    fork
-      gen.run();  // Start generator via its handle
-      drv.run();  // Start driver via its handle
-      mon.run();  // Start monitor via its handle
-      scb.run();  // Start scoreboard via its handle
-    join_none
-    
-    // Wait for generator to complete
-    wait(gen.num_transactions == 0 || $time > 50000);
-    #10000;  // Additional time for pipeline to drain
-  endtask
-  
-  function void report();
-    scb.report();  // Call scoreboard report via its handle
-  endfunction
+    task run();
+        fork
+            gen.run();
+            drv.run();
+            mon.run();
+            scb.run();
+        join_any
+        #1000;
+        scb.report();
+    endtask
 endclass
 
 // Testbench Module
@@ -270,7 +240,7 @@ module tb_async_fifo;
   assign fifo_if.WClk = WClk;
   assign fifo_if.RClk = RClk;
   
-  // Coverage
+  // --- Coverage Class ---
   covergroup fifo_cg @(posedge WClk);
     cp_write: coverpoint fifo_if.Write {
       bins write_0 = {0};
