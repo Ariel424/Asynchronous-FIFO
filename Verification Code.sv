@@ -70,7 +70,7 @@ class my_driver;
       gen2drv.get(tr);
       
       fork
-        // Write Path
+        // consumer path / write path
         begin
           @(vif.w_cb);
           if (!vif.w_cb.full && tr.write) begin
@@ -80,7 +80,7 @@ class my_driver;
             vif.w_cb.write   <= 1'b0;
           end
         end
-        // Read Path
+        // producer path / read path
         begin
           @(vif.r_cb);
           if (!vif.r_cb.empty && tr.read) begin
