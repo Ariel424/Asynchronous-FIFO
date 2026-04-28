@@ -68,19 +68,16 @@ class my_driver;
     forever begin
       my_transaction tr;
       gen2drv.get(tr);
-      
       fork
-        // consumer path / write path
-        begin
-          @(vif.w_cb);
-          if (!vif.w_cb.full && tr.write) begin
+        @(vif.w_cb);
+        if (!vif.w_cb.full && tr.w_cb.write) begin
             vif.w_cb.write   <= 1'b1;
             vif.w_cb.data_in <= tr.data_in;
           end else begin
             vif.w_cb.write   <= 1'b0;
           end
         end
-        // producer path / read path
+        // consumer path / write path
         begin
           @(vif.r_cb);
           if (!vif.r_cb.empty && tr.read) begin
