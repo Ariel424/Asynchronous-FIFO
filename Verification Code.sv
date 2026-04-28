@@ -4,7 +4,6 @@ class my_transaction;
   rand bit write;
   rand bit read;
   bit [7:0] data_out;
-  bit full, empty;
 
   constraint c_write_read {
     write dist {1 := 70, 0 := 30};
