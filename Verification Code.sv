@@ -58,39 +58,72 @@ class my_driver;
   mailbox #(my_transaction) gen2drv;
   event drv_done;
 
+  int timeout_cycles = 100;
+  
   function new(virtual my_interface.DRIVER_MP vif, mailbox #(my_transaction) gen2drv, event drv_done);
     this.vif = vif;
     this.gen2drv = gen2drv;
     this.drv_done = drv_done;
   endfunction
 
+  task reset();
+  $display("[%0t] Driver: Reset Task Started", $time);
+  wait(vif.wreset || vif.rreset);
+    vif.w_cb.write   <= 1'b0;
+    vif.w_cb.data_in <= 8'b0;
+    vif.r_cb.read    <= 1'b0;
+  wait(!vif.wreset && !vif.rreset);
+
+  @(vif.w_cb);
+   $display("[%0t] Driver: Reset Task Finished - System Ready", $time);
+  endtask
+    
   task run();
+    reset();
+
     forever begin
       my_transaction tr;
       gen2drv.get(tr);
-      fork
-        @(vif.w_cb);
-        if (!vif.w_cb.full && tr.w_cb.write) begin
-            vif.w_cb.write   <= 1'b1;
-            vif.w_cb.data_in <= tr.data_in;
-          end else begin
-            vif.w_cb.write   <= 1'b0;
-          end
-        end
-        // consumer path / write path
+
+      fork: transaction_watchdog
         begin
-          @(vif.r_cb);
-          if (!vif.r_cb.empty && tr.read) begin
-            vif.r_cb.read <= 1'b1;
-          end else begin
-            vif.r_cb.read <= 1'b0;
-          end
+          execute_transaction(tr);
         end
-      join
-      
+        begin
+          repeat(timeout_cycles) @(vif.w_cb);
+          $error("[%0t] Watchdog Triggered: Transaction Timeout!", $time);
+        end
+      join_any 
+      disable transaction_watchdog;
       -> drv_done;
     end
   endtask
+  
+    task execute_transaction(my_transaction tr);
+    fork
+      // Write Channel
+      begin
+        @(vif.w_cb);
+        if (tr.write && !vif.w_cb.full) begin
+          vif.w_cb.write   <= 1'b1;
+          vif.w_cb.data_in <= tr.data_in;
+          @(vif.w_cb);
+        end
+        vif.w_cb.write <= 1'b0;
+      end
+      
+      // Read Channel
+      begin
+        @(vif.r_cb);
+        if (tr.read && !vif.r_cb.empty) begin
+          vif.r_cb.read <= 1'b1;
+          @(vif.r_cb);
+        end
+        vif.r_cb.read <= 1'b0;
+      end
+    join
+  endtask
+
 endclass
 
 // --- Monitor Class ---
