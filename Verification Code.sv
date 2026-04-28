@@ -124,10 +124,10 @@ class my_monitor;
   virtual my_interface.R_MONITOR_MP r_vif;
   mailbox #(my_transaction) mon2scb;
 
-  function new(virtual my_interface.W_MONITOR_MP w_vif, 
-              virtual my_interface.R_MONITOR_MP r_vif, 
-              mailbox #(my_transaction) mon2scb);
-    this.w_vif = w_vif; this.r_vif = r_vif; this.mon2scb = mon2scb;
+  function new(virtual my_interface.W_MONITOR_MP w_vif, virtual my_interface.R_MONITOR_MP r_vif, mailbox #(my_transaction) mon2scb);
+    this.w_vif = w_vif;
+    this.r_vif = r_vif;
+    this.mon2scb = mon2scb;
   endfunction
 
   task run();
@@ -137,7 +137,8 @@ class my_monitor;
         if (w_vif.w_cb.write && !w_vif.w_cb.full) begin
           my_transaction tr = new();
           tr.data_in = w_vif.w_cb.data_in;
-          tr.write = 1; tr.full = w_vif.w_cb.full;
+          tr.write = 1; 
+          tr.full = w_vif.w_cb.full;
           mon2scb.put(tr);
         end
       end
@@ -146,7 +147,8 @@ class my_monitor;
         if (r_vif.r_cb.read && !r_vif.r_cb.empty) begin
           my_transaction tr = new();
           tr.data_out = r_vif.r_cb.data_out;
-          tr.read = 1; tr.empty = r_vif.r_cb.empty;
+          tr.read = 1;
+          tr.empty = r_vif.r_cb.empty;
           mon2scb.put(tr);
         end
       end
@@ -185,7 +187,6 @@ endclass
 
 
 // --- environment Class ---
-
 class my_generator;
   mailbox #(my_transaction) gen2drv;
   event drv_done;
