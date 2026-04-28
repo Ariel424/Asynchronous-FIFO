@@ -1,9 +1,9 @@
 interface my_interface (input logic wclk, rclk);
     
-logic write;
 logic wreset;
-logic read;
 logic rreset;
+logic write;
+logic read;
 logic full;
 logic empty;
 logic [7:0] data_in, data_out;
