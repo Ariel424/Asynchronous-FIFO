@@ -207,8 +207,10 @@ class my_generator;
 endclass
 
 class FIFO_environment;
-  my_generator gen; my_driver drv;
-  my_monitor mon; FIFO_scoreboard scb;
+  my_generator gen;
+  my_driver drv;
+  my_monitor mon;
+  FIFO_scoreboard scb;
   mailbox #(my_transaction) g2d, m2s;
   event d_done;
   virtual my_interface vif;
