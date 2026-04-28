@@ -1,27 +1,30 @@
 // --- Transaction Class ---
 class my_transaction;
-
   rand bit [7:0] data_in;
   rand bit write;
   rand bit read;
+  bit [7:0] data_out;
+  bit full, empty;
 
-  constraint c_data {data {[8'h00 : 8'hFF]}; } 
   constraint c_write_read {
     write dist {1 := 70, 0 := 30};
-    read dist {1 := 70, 0 := 30};
+    read  dist {1 := 70, 0 := 30};
   }
   
-  function transaction copy();
-   my_transaction tr = new();
-    tr.data = this.data;
-    tr.write = this.write;
-    tr.read = this.read;
+  function my_transaction copy();
+    my_transaction tr = new();
+    tr.data_in = this.data_in;
+    tr.write   = this.write;
+    tr.read    = this.read;
+    tr.data_out = this.data_out;
+    tr.full    = this.full;
+    tr.empty   = this.empty;
     return tr;
   endfunction
   
   function void display(string tag = "");
-    $display("[%0t] %s Write=%0b Read=%0b Data=0x%0h", 
-             $time, tag, write, read, data);
+    $display("[%0t] %s | W=%0b R=%0b Din=0x%0h Dout=0x%0h F=%0b E=%0b", 
+             $time, tag, write, read, data_in, data_out, full, empty);
   endfunction
 endclass
 
@@ -51,94 +54,91 @@ endclass
 
 // --- Driver class ---
 class my_driver;
-  virtual my_interface.DRIVER_MP vif;          
-  mailbox #(my_transaction) gen2drv;    
-  event drv_done;               
-  
+  virtual my_interface.DRIVER_MP vif;
+  mailbox #(my_transaction) gen2drv;
+  event drv_done;
+
   function new(virtual my_interface.DRIVER_MP vif, mailbox #(my_transaction) gen2drv, event drv_done);
-    this.vif = vif; 
-    this.gen2drv = gen2drv;  
+    this.vif = vif;
+    this.gen2drv = gen2drv;
     this.drv_done = drv_done;
   endfunction
-  
+
   task run();
     forever begin
       my_transaction tr;
-      gen2drv.get(tr); 
+      gen2drv.get(tr);
       
-      fork 
-      drive_write(tr);
-      drive_read(tr);
+      fork
+        // Write Path
+        begin
+          @(vif.w_cb);
+          if (!vif.w_cb.full && tr.write) begin
+            vif.w_cb.write   <= 1'b1;
+            vif.w_cb.data_in <= tr.data_in;
+          end else begin
+            vif.w_cb.write   <= 1'b0;
+          end
+        end
+        // Read Path
+        begin
+          @(vif.r_cb);
+          if (!vif.r_cb.empty && tr.read) begin
+            vif.r_cb.read <= 1'b1;
+          end else begin
+            vif.r_cb.read <= 1'b0;
+          end
+        end
       join
       
       -> drv_done;
     end
   endtask
-  
-  task drive_write(my_transaction tr);
-    @(vif.w_cb);
-    vif.w_cb.write <= tr.write;
-    vif.w_cb.data_in = tr.data_in;
-  endtask
-  
-  task drive_read(my_transaction tr);
-    @(vif.r_cb);
-    vif.r_cb.read <= tr.read;
-  endtask
 endclass
 
 // --- Monitor Class ---
 class my_monitor;
-  virtual my_interface_W_MONITOR_MP w_vif;
-  virtual my_interface.R_MONITO_MP r_vif;
-  mailbox #(FIFO_transaction) mbx_write;    
-  mailbox #(FIFO_transaction) mbx_read;    
-  
-  class FIFO_monitor;
-    virtual my_interface.W_MONITOR w_vif; 
-    virtual my_interface.R_MONITOR r_vif;
-    mailbox #(my_transaction) mbx_write; 
-    mailbox #(my_transaction) mbx_read;  
-    
-    function new(virtual my_interface.W_MONITOR w_vif, virtual my_interface.R_MONITOR r_vif, mailbox #(my_transaction) mbx_write, mailbox #(my_transaction) mbx_read);
-        this.w_vif = w_vif;
-        this.r_vif = r_vif;
-        this.mbx_write = mbx_write;
-        this.mbx_read = mbx_read;
-    endfunction
-    
-    task run();
-        fork
-            monitor_write();
-            monitor_read();
-        join
-    endtask
-    
-    task monitor_write();
-        forever begin
-            @(w_vif.w_cb);
-            if (w_vif.w_cb.write && !w_vif.w_cb.full) begin
-                my_transaction tr = new();
-                tr.data = w_vif.w_cb.data_in;
-                mbx_write.put(tr);
-                $display("[%0t] MONITOR_WRITE: Data=0x%0h", $time, tr.data);
-            end
+  virtual my_interface.W_MONITOR_MP w_vif;
+  virtual my_interface.R_MONITOR_MP r_vif;
+  mailbox #(my_transaction) mon2scb;
+
+  function new(virtual my_interface.W_MONITOR_MP w_vif, 
+              virtual my_interface.R_MONITOR_MP r_vif, 
+              mailbox #(my_transaction) mon2scb);
+    this.w_vif = w_vif;
+    this.r_vif = r_vif;
+    this.mon2scb = mon2scb;
+  endfunction
+
+  task run();
+    fork
+      // Monitor Writes
+      forever begin
+        @(w_vif.w_cb);
+        if (w_vif.w_cb.write && !w_vif.w_cb.full) begin
+          my_transaction tr = new();
+          tr.data_in = w_vif.w_cb.data_in;
+          tr.write   = 1;
+          tr.full    = w_vif.w_cb.full;
+          mon2scb.put(tr);
         end
-    endtask
-    
-    task monitor_read();
-        forever begin
-            @(r_vif.r_cb);
-            if (r_vif.r_cb.read && !r_vif.r_cb.empty) begin
-                @(r_vif.r_cb); 
-                my_transaction tr = new();
-                tr.data = r_vif.r_cb.data_out;
-                mbx_read.put(tr);
-                $display("[%0t] MONITOR_READ: Data=0x%0h", $time, tr.data);
-            end
+      end
+      // Monitor Reads
+      forever begin
+        @(r_vif.r_cb);
+        if (r_vif.r_cb.read && !r_vif.r_cb.empty) begin
+          my_transaction tr = new();
+          tr.data_out = r_vif.r_cb.data_out;
+          tr.read     = 1;
+          tr.empty    = r_vif.r_cb.empty;
+          mon2scb.put(tr);
         end
-    endtask
+      end
+    join
+  endtask
 endclass
+
+// --- Scoreboard Class ---
 
 class FIFO_scoreboard;
     mailbox #(my_transaction) mbx_write; 
@@ -170,37 +170,38 @@ class FIFO_scoreboard;
         join
     endtask
 
+// --- environment Class ---
+
 class FIFO_environment;
-    my_generator gen;
-    my_driver drv;
-    FIFO_monitor mon;
-    FIFO_scoreboard scb;
-    event drv_done;
-    mailbox #(my_transaction) mbx_gen_drv, mbx_mon_scb_w, mbx_mon_scb_r;
-    virtual my_interface vif;
+  my_generator gen;
+  my_driver    drv;
+  my_monitor   mon;
+  FIFO_scoreboard scb;
+  
+  mailbox #(my_transaction) g2d, m2s;
+  event drv_done;
+  virtual my_interface vif;
+
+  function new(virtual my_interface vif, int num_txns = 200);
+    this.vif = vif;
+    g2d = new();
+    m2s = new();
     
-    function new(virtual my_interface vif, int num_txns = 200);
-        this.vif = vif;
-        mbx_gen_drv  = new();
-        mbx_mon_scb_w = new();
-        mbx_mon_scb_r = new();
-        
-        gen = new(mbx_gen_drv, drv_done, num_txns);
-        drv = new(mbx_gen_drv, vif.DRIVER, drv_done);
-        mon = new(vif.W_MONITOR, vif.R_MONITOR, mbx_mon_scb_w, mbx_mon_scb_r);
-        scb = new(mbx_mon_scb_w, mbx_mon_scb_r);
-    endfunction
-    
-    task run();
-        fork
-            gen.run();
-            drv.run();
-            mon.run();
-            scb.run();
-        join_any
-        #1000;
-        scb.report();
-    endtask
+    gen = new(g2d, drv_done, num_txns);
+    // חיבור ה-Modports הספציפיים
+    drv = new(vif.DRIVER_MP, g2d, drv_done);
+    mon = new(vif.W_MONITOR_MP, vif.R_MONITOR_MP, m2s);
+    scb = new(m2s);
+  endfunction
+
+  task run();
+    fork
+      gen.run();
+      drv.run();
+      mon.run();
+      scb.run();
+    join_any
+  endtask
 endclass
 
 // Testbench Module
