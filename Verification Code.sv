@@ -1,26 +1,27 @@
 // --- Transaction Class ---
 class my_transaction;
   rand bit [7:0] data_in;
-  rand bit write;
-  rand bit read;
+  rand bit write, read;
+  
   bit [7:0] data_out;
+  bit full, empty;
 
   constraint c_write_read {
     write dist {1 := 70, 0 := 30};
     read  dist {1 := 70, 0 := 30};
   }
-  
+
   function my_transaction copy();
     my_transaction tr = new();
-    tr.data_in = this.data_in;
-    tr.write   = this.write;
-    tr.read    = this.read;
+    tr.data_in  = this.data_in;
+    tr.write    = this.write;
+    tr.read     = this.read;
     tr.data_out = this.data_out;
-    tr.full    = this.full;
-    tr.empty   = this.empty;
+    tr.full     = this.full;
+    tr.empty    = this.empty;
     return tr;
   endfunction
-  
+
   function void display(string tag = "");
     $display("[%0t] %s | W=%0b R=%0b Din=0x%0h Dout=0x%0h F=%0b E=%0b", 
              $time, tag, write, read, data_in, data_out, full, empty);
@@ -56,9 +57,8 @@ class my_driver;
   virtual my_interface.DRIVER_MP vif;
   mailbox #(my_transaction) gen2drv;
   event drv_done;
-
   int timeout_cycles = 100;
-  
+
   function new(virtual my_interface.DRIVER_MP vif, mailbox #(my_transaction) gen2drv, event drv_done);
     this.vif = vif;
     this.gen2drv = gen2drv;
@@ -66,41 +66,36 @@ class my_driver;
   endfunction
 
   task reset();
-  $display("[%0t] Driver: Reset Task Started", $time);
-  wait(vif.wreset || vif.rreset);
+    $display("[%0t] Driver: Waiting for Reset...", $time);
     vif.w_cb.write   <= 1'b0;
-    vif.w_cb.data_in <= 8'b0;
     vif.r_cb.read    <= 1'b0;
-  wait(!vif.wreset && !vif.rreset);
-
-  @(vif.w_cb);
-   $display("[%0t] Driver: Reset Task Finished - System Ready", $time);
+    vif.w_cb.data_in <= 8'b0;
+    wait(!vif.wreset && !vif.rreset);
+    @(vif.w_cb);
+    $display("[%0t] Driver: Reset Released", $time);
   endtask
-    
+
   task run();
     reset();
-
     forever begin
       my_transaction tr;
       gen2drv.get(tr);
-
-      fork: transaction_watchdog
-        begin
-          execute_transaction(tr);
-        end
+      
+      fork : watchdog_block
+        execute_transaction(tr);
         begin
           repeat(timeout_cycles) @(vif.w_cb);
-          $error("[%0t] Watchdog Triggered: Transaction Timeout!", $time);
+          $error("Driver: Timeout reached!");
         end
-      join_any 
-      disable transaction_watchdog;
+      join_any
+      disable watchdog_block;
       -> drv_done;
     end
   endtask
-  
-    task execute_transaction(my_transaction tr);
+
+  task execute_transaction(my_transaction tr);
     fork
-      // Write Channel
+      // Write Path
       begin
         @(vif.w_cb);
         if (tr.write && !vif.w_cb.full) begin
@@ -110,8 +105,7 @@ class my_driver;
         end
         vif.w_cb.write <= 1'b0;
       end
-      
-      // Read Channel
+      // Read Path
       begin
         @(vif.r_cb);
         if (tr.read && !vif.r_cb.empty) begin
@@ -122,7 +116,6 @@ class my_driver;
       end
     join
   endtask
-
 endclass
 
 // --- Monitor Class ---
@@ -134,32 +127,26 @@ class my_monitor;
   function new(virtual my_interface.W_MONITOR_MP w_vif, 
               virtual my_interface.R_MONITOR_MP r_vif, 
               mailbox #(my_transaction) mon2scb);
-    this.w_vif = w_vif;
-    this.r_vif = r_vif;
-    this.mon2scb = mon2scb;
+    this.w_vif = w_vif; this.r_vif = r_vif; this.mon2scb = mon2scb;
   endfunction
 
   task run();
     fork
-      // Monitor Writes
-      forever begin
+      forever begin // Write Monitor
         @(w_vif.w_cb);
         if (w_vif.w_cb.write && !w_vif.w_cb.full) begin
           my_transaction tr = new();
           tr.data_in = w_vif.w_cb.data_in;
-          tr.write   = 1;
-          tr.full    = w_vif.w_cb.full;
+          tr.write = 1; tr.full = w_vif.w_cb.full;
           mon2scb.put(tr);
         end
       end
-      // Monitor Reads
-      forever begin
+      forever begin // Read Monitor
         @(r_vif.r_cb);
         if (r_vif.r_cb.read && !r_vif.r_cb.empty) begin
           my_transaction tr = new();
           tr.data_out = r_vif.r_cb.data_out;
-          tr.read     = 1;
-          tr.empty    = r_vif.r_cb.empty;
+          tr.read = 1; tr.empty = r_vif.r_cb.empty;
           mon2scb.put(tr);
         end
       end
@@ -168,98 +155,108 @@ class my_monitor;
 endclass
 
 // --- Scoreboard Class ---
-
 class FIFO_scoreboard;
-    mailbox #(my_transaction) mbx_write; 
-    mailbox #(my_transaction) mbx_read;   
-    my_transaction write_queue[$];
-    int match_count, mismatch_count;
-    
-    function new(mailbox #(my_transaction) mbx_write, mailbox #(my_transaction) mbx_read);
-        this.mbx_write = mbx_write;
-        this.mbx_read = mbx_read;
-    endfunction
-    
-    task run();
-        fork
-            forever begin
-                my_transaction tr;
-                mbx_write.get(tr);
-                write_queue.push_back(tr);
-            end
-            forever begin
-                my_transaction tr, txn_exp;
-                mbx_read.get(tr);
-                if (write_queue.size() > 0) begin
-                    txn_exp = write_queue.pop_front();
-                    if (tr.data == txn_exp.data) match_count++;
-                    else mismatch_count++;
-                end
-            end
-        join
-    endtask
+  mailbox #(my_transaction) mon2scb;
+  logic [7:0] queue[$];
+  int matches, mismatches;
+
+  function new(mailbox #(my_transaction) mon2scb);
+    this.mon2scb = mon2scb;
+  endfunction
+
+  task run();
+    forever begin
+      my_transaction tr;
+      mon2scb.get(tr);
+      if (tr.write) queue.push_back(tr.data_in);
+      if (tr.read) begin
+        if (queue.size() > 0) begin
+          logic [7:0] exp = queue.pop_front();
+          if (tr.data_out === exp) matches++;
+          else begin 
+            $error("Mismatch! Exp: %h, Got: %h", exp, tr.data_out);
+            mismatches++;
+          end
+        end
+      end
+    end
+  endtask
+endclass
+
 
 // --- environment Class ---
 
-class FIFO_environment;
-  my_generator gen;
-  my_driver    drv;
-  my_monitor   mon;
-  FIFO_scoreboard scb;
-  
-  mailbox #(my_transaction) g2d, m2s;
+class my_generator;
+  mailbox #(my_transaction) gen2drv;
   event drv_done;
+  int num;
+
+  function new(mailbox #(my_transaction) gen2drv, event drv_done, int num);
+    this.gen2drv = gen2drv; this.drv_done = drv_done; this.num = num;
+  endfunction
+
+  task run();
+    repeat(num) begin
+      my_transaction tr = new();
+      void'(tr.randomize());
+      gen2drv.put(tr);
+      @(drv_done);
+    end
+  endtask
+endclass
+
+class FIFO_environment;
+  my_generator gen; my_driver drv;
+  my_monitor mon; FIFO_scoreboard scb;
+  mailbox #(my_transaction) g2d, m2s;
+  event d_done;
   virtual my_interface vif;
 
-  function new(virtual my_interface vif, int num_txns = 200);
+  function new(virtual my_interface vif, int num);
     this.vif = vif;
-    g2d = new();
-    m2s = new();
-    
-    gen = new(g2d, drv_done, num_txns);
-    // חיבור ה-Modports הספציפיים
-    drv = new(vif.DRIVER_MP, g2d, drv_done);
+    g2d = new(); m2s = new();
+    gen = new(g2d, d_done, num);
+    drv = new(vif.DRIVER_MP, g2d, d_done);
     mon = new(vif.W_MONITOR_MP, vif.R_MONITOR_MP, m2s);
     scb = new(m2s);
   endfunction
 
   task run();
     fork
-      gen.run();
-      drv.run();
-      mon.run();
-      scb.run();
+      gen.run(); drv.run();
+      mon.run(); scb.run();
     join_any
   endtask
 endclass
 
 // Testbench Module
-module tb_async_fifo;
-  // Clock generation
-  bit WClk = 0, RClk = 0;
-  always #5 WClk = ~WClk;  // 100MHz
-  always #7 RClk = ~RClk;  // ~71MHz (different frequency)
-  
-  // Interface instantiation
-  ASYNC_FIFO_if fifo_if();
-  
-  // DUT instantiation
+mmodule tb_async_fifo;
+  bit wclk, rclk;
+  always #5 wclk = ~wclk;
+  always #8 rclk = ~rclk;
+
+  my_interface fifo_if(wclk, rclk);
+
   ASYNC_FIFO dut (
-    .WClk(fifo_if.WClk),
-    .WReset(fifo_if.WReset),
-    .Write(fifo_if.Write),
-    .Din(fifo_if.Data_in),
-    .Full(fifo_if.Full),
-    .RClk(fifo_if.RClk),
-    .RReset(fifo_if.RReset),
-    .Read(fifo_if.Read),
-    .Dout(fifo_if.Data_out),
-    .Empty(fifo_if.Empty)
+    .WClk(fifo_if.wclk), .WReset(fifo_if.wreset),
+    .Write(fifo_if.write), .Din(fifo_if.data_in), .Full(fifo_if.full),
+    .RClk(fifo_if.rclk), .RReset(fifo_if.rreset),
+    .Read(fifo_if.read), .Dout(fifo_if.data_out), .Empty(fifo_if.empty)
   );
-  
-  // Connect clocks
-  assign fifo_if.WClk = WClk;
-  assign fifo_if.RClk = RClk;
+
+  initial begin
+    FIFO_environment env;
+    fifo_if.wreset = 1; fifo_if.rreset = 1;
+    #50 fifo_if.wreset = 0; fifo_if.rreset = 0;
+    
+    env = new(fifo_if, 200);
+    env.run();
+    
+    #500;
+    $display("Test Finished. Matches: %0d, Errors: %0d", env.scb.matches, env.scb.mismatches);
+    $finish;
+  end
+endmodule
   
   // --- Coverage Class ---
   covergroup fifo_cg @(posedge WClk);
