@@ -4,7 +4,7 @@ module async_fifo (
     input  logic [7:0] din,
     input  logic       rclk, rreset, read,
     output logic       full,
-    output logic [7:0] dout, // מוגדר כעת כ-logic בצורה תקינה ומפורשת
+    output logic [7:0] dout, 
     output logic       empty
 );
 
