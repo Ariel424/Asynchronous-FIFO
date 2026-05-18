@@ -2,8 +2,8 @@
 module async_fifo (
     input wclk, wreset, write,
     input [7:0] din,
-    output full,
     input rclk, rreset, read,
+    output full,
     output reg [7:0] dout,
     output empty
 );
