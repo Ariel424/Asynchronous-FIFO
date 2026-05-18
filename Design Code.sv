@@ -1,11 +1,11 @@
 // asynchronous fifo module
 module async_fifo (
-    input wclk, wreset, write,
-    input [7:0] din,
-    input rclk, rreset, read,
-    output full,
-    output reg [7:0] dout,
-    output empty
+    input  logic       wclk, wreset, write,
+    input  logic [7:0] din,
+    input  logic       rclk, rreset, read,
+    output logic       full,
+    output logic [7:0] dout, // מוגדר כעת כ-logic בצורה תקינה ומפורשת
+    output logic       empty
 );
 
   logic [7:0] mem [15:0];
