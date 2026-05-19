@@ -30,7 +30,7 @@ endclass
 
 // --- Generator Class ---
 class my_generator;
-  mailbox #(transaction) gen2drv;      
+  mailbox #(my_transaction) gen2drv;      
   int num_transactions;  
   event drv_done;
   
@@ -43,7 +43,7 @@ class my_generator;
   task run();
     repeat(num_transactions) begin
       my_transaction tr = new(); 
-      assert(tr.randomize()) else $fatal("Randomization failed");
+      if (!tr.randomize()) $fatal("Randomization failed");
       gen2drv.put(tr.copy());  
       tr.display("GENERATOR");
       @(drv_done); 
@@ -52,7 +52,7 @@ class my_generator;
   endtask
 endclass
 
-// --- Driver class ---
+// --- Driver Class ---
 class my_driver;
   virtual my_interface.DRIVER_MP vif;
   mailbox #(my_transaction) gen2drv;
@@ -70,6 +70,7 @@ class my_driver;
     vif.w_cb.write   <= 1'b0;
     vif.r_cb.read    <= 1'b0;
     vif.w_cb.data_in <= 8'b0;
+    // מחכים לשחרור ה-Reset הא-סינכרוני
     wait(!vif.wreset && !vif.rreset);
     @(vif.w_cb);
     $display("[%0t] Driver: Reset Released", $time);
@@ -87,7 +88,7 @@ class my_driver;
           repeat(timeout_cycles) @(vif.w_cb);
           $error("Driver: Timeout reached!");
         end
-      join_any
+      endfork
       disable watchdog_block;
       -> drv_done;
     end
@@ -183,29 +184,18 @@ class FIFO_scoreboard;
       end
     end
   endtask
-endclass
 
-
-// --- environment Class ---
-class my_generator;
-  mailbox #(my_transaction) gen2drv;
-  event drv_done;
-  int num;
-
-  function new(mailbox #(my_transaction) gen2drv, event drv_done, int num);
-    this.gen2drv = gen2drv; this.drv_done = drv_done; this.num = num;
+  function void report();
+    $display("\n=============================");
+    $display("       FINAL REPORT          ");
+    $display("=============================");
+    $display("Matches:    %0d", matches);
+    $display("Mismatches: %0d", mismatches);
+    $display("=============================\n");
   endfunction
-
-  task run();
-    repeat(num) begin
-      my_transaction tr = new();
-      void'(tr.randomize());
-      gen2drv.put(tr);
-      @(drv_done);
-    end
-  endtask
 endclass
 
+// --- Environment Class ---
 class FIFO_environment;
   my_generator gen;
   my_driver drv;
@@ -226,78 +216,75 @@ class FIFO_environment;
 
   task run();
     fork
-      gen.run(); drv.run();
-      mon.run(); scb.run();
+      gen.run(); 
+      drv.run();
+      mon.run(); 
+      scb.run();
     join_any
   endtask
+  
+  function void report();
+    scb.report();
+  endfunction
 endclass
 
-// Testbench Module
-mmodule tb_async_fifo;
+
+// --- Testbench Top Module ---
+module tb_async_fifo;
   bit wclk, rclk;
+  
+  // יצירת שעונים אסינכרוניים (תדרים שונים)
   always #5 wclk = ~wclk;
   always #8 rclk = ~rclk;
 
+  // חיבור האינטרפייס
   my_interface fifo_if(wclk, rclk);
 
+  // חיבור ה-DUT (החלפת אותיות קטנות לסיגנלים של ה-Interface)
   ASYNC_FIFO dut (
-    .WClk(fifo_if.wclk), .WReset(fifo_if.wreset),
-    .Write(fifo_if.write), .Din(fifo_if.data_in), .Full(fifo_if.full),
-    .RClk(fifo_if.rclk), .RReset(fifo_if.rreset),
-    .Read(fifo_if.read), .Dout(fifo_if.data_out), .Empty(fifo_if.empty)
+    .WClk(fifo_if.wclk),   .WReset(fifo_if.wreset),
+    .Write(fifo_if.write), .Din(fifo_if.data_in),   .Full(fifo_if.full),
+    .RClk(fifo_if.rclk),   .RReset(fifo_if.rreset),
+    .Read(fifo_if.read),   .Dout(fifo_if.data_out), .Empty(fifo_if.empty)
   );
 
-  initial begin
-    FIFO_environment env;
-    fifo_if.wreset = 1; fifo_if.rreset = 1;
-    #50 fifo_if.wreset = 0; fifo_if.rreset = 0;
-    
-    env = new(fifo_if, 200);
-    env.run();
-    
-    #500;
-    $display("Test Finished. Matches: %0d, Errors: %0d", env.scb.matches, env.scb.mismatches);
-    $finish;
-  end
-endmodule
-  
-  // --- Coverage Class ---
-  covergroup fifo_cg @(posedge WClk);
-    cp_write: coverpoint fifo_if.Write {
+  // Functional Coverage (תיקון שמות האותיות הקטנות)
+  covergroup fifo_cg @(posedge wclk);
+    cp_write: coverpoint fifo_if.write {
       bins write_0 = {0};
       bins write_1 = {1};
     }
-    cp_full: coverpoint fifo_if.Full {
+    cp_full: coverpoint fifo_if.full {
       bins full_0 = {0};
       bins full_1 = {1};
     }
-    cp_data: coverpoint fifo_if.Data_in {
-      bins low = {[0:63]};
-      bins mid = {[64:191]};
+    cp_data: coverpoint fifo_if.data_in {
+      bins low  = {[0:63]};
+      bins mid  = {[64:191]};
       bins high = {[192:255]};
     }
     cross_write_full: cross cp_write, cp_full;
   endgroup
   
-  covergroup fifo_read_cg @(posedge RClk);
-    cp_read: coverpoint fifo_if.Read {
+  covergroup fifo_read_cg @(posedge rclk);
+    cp_read: coverpoint fifo_if.read {
       bins read_0 = {0};
       bins read_1 = {1};
     }
-    cp_empty: coverpoint fifo_if.Empty {
+    cp_empty: coverpoint fifo_if.empty {
       bins empty_0 = {0};
       bins empty_1 = {1};
     }
     cross_read_empty: cross cp_read, cp_empty;
   endgroup
   
-  // Assertions
+  // SystemVerilog Assertions (SVA) קלאסיים ל-FIFO אסינכרוני
   property p_no_write_when_full;
-    @(posedge WClk) (fifo_if.Full && fifo_if.Write) |=> $stable(fifo_if.Full);
+    @(posedge wclk) (fifo_if.full && fifo_if.write) |=> $stable(fifo_if.full);
   endproperty
   
   property p_no_read_when_empty;
-    @(posedge RClk) (fifo_if.Empty && fifo_if.Read) |=> $stable(fifo_if.Empty);
+    @(posedge rclk) (fifo_if.empty && fifo_if.read) |=> $stable(fifo_if.empty);
   endproperty
   
   assert_no_write_full: assert property(p_no_write_when_full)
@@ -306,48 +293,52 @@ endmodule
   assert_no_read_empty: assert property(p_no_read_when_empty)
     else $error("Read occurred when FIFO was empty");
   
-  // Test execution
+  // ניהול הרצת הטסט בבלוק אחיד
   initial begin
-    FIFO_environment env;  // Handle to environment
+    FIFO_environment env;
     fifo_cg fcg = new();
     fifo_read_cg frcg = new();
     
-    // Initialize
-    fifo_if.Write = 0;
-    fifo_if.Read = 0;
-    fifo_if.Data_in = 0;
-    fifo_if.WReset = 1;
-    fifo_if.RReset = 1;
+    // סיגנלי אתחול ראשוניים (דרך האינטרפייס ולא ישירות ל-Clocking Block)
+    fifo_if.write   = 0;
+    fifo_if.read    = 0;
+    fifo_if.data_in = 0;
     
-    repeat(10) @(posedge WClk);
-    fifo_if.WReset = 0;
-    fifo_if.RReset = 0;
-    repeat(10) @(posedge WClk);
+    // הפעלת Reset אסינכרוני
+    fifo_if.wreset = 1; 
+    fifo_if.rreset = 1;
+    #40;
+    fifo_if.wreset = 0; 
+    fifo_if.rreset = 0;
     
-    // Create environment handle and pass interface handle + number of transactions
+    // יצירת ה-Environment: נריץ 200 טרנזקציות
     env = new(fifo_if, 200);
     
     $display("\n========================================");
-    $display("Starting FIFO Verification with Handles");
+    $display("Starting FIFO Verification Environment");
     $display("========================================\n");
     
-    // Run test via environment handle
+    // הרצת כל הרכיבים במקביל
     env.run();
     
-    // Report results via environment handle
-    repeat(100) @(posedge WClk);
+    // מחכים שהגנרטור יסיים (הוא יצא מה-fork-join_any של ה-env)
+    wait(env.gen.num_transactions == env.scb.matches + env.scb.mismatches);
+    #100;
+    
+    // הדפסת דוחות סופיים
     env.report();
     
     $display("\nCoverage Results:");
     $display("Write Coverage: %.2f%%", fcg.get_coverage());
-    $display("Read Coverage: %.2f%%", frcg.get_coverage());
+    $display("Read Coverage:  %.2f%%", frcg.get_coverage());
     
     $finish;
   end
   
-  // Waveform dump
+  // שמירת גלי ריצה (Waveform Dump)
   initial begin
     $dumpfile("fifo.vcd");
     $dumpvars(0, tb_async_fifo);
   end
+
 endmodule
