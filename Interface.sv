@@ -19,10 +19,16 @@ interface my_interface (input logic wclk, rclk);
         input  empty;
     endclocking
 
-    modport W_DRIVER_MP  (clocking w_cb, output wreset);
-    modport W_MONITOR_MP (clocking w_cb, input wreset);
+    modport DRIVER_MP (
+        clocking w_cb, 
+        clocking r_cb, 
+        output wreset, 
+        output rreset,
+        input wclk,
+        input rclk
+    );
 
-    modport R_DRIVER_MP  (clocking r_cb, output rreset);
+    modport W_MONITOR_MP (clocking w_cb, input wreset);
     modport R_MONITOR_MP (clocking r_cb, input rreset);
 
 endinterface
