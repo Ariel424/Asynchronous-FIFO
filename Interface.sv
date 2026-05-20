@@ -31,4 +31,19 @@ interface my_interface (input logic wclk, rclk);
     modport W_MONITOR_MP (clocking w_cb, input wreset);
     modport R_MONITOR_MP (clocking r_cb, input rreset);
 
+ // (SVA)
+  property p_no_write_when_full;
+    @(posedge wclk) (fifo_if.full && fifo_if.write) |=> $stable(fifo_if.full);
+  endproperty
+  
+  property p_no_read_when_empty;
+    @(posedge rclk) (fifo_if.empty && fifo_if.read) |=> $stable(fifo_if.empty);
+  endproperty
+  
+  assert_no_write_full: assert property(p_no_write_when_full)
+    else $error("Write occurred when FIFO was full");
+  
+  assert_no_read_empty: assert property(p_no_read_when_empty)
+    else $error("Read occurred when FIFO was empty");
+        
 endinterface
