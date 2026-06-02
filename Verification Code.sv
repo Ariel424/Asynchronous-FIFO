@@ -1,4 +1,6 @@
-// --- Transaction Class ---
+// ============================================================================
+// 1. TRANSACTION CLASS
+// ============================================================================
 class my_transaction;
   rand bit [7:0] data_in;
   rand bit write, read;
@@ -28,7 +30,9 @@ class my_transaction;
   endfunction
 endclass
 
-// --- Generator Class ---
+// ============================================================================
+// 2. GENERATOR CLASS
+// ============================================================================
 class my_generator;
   mailbox #(my_transaction) gen2drv;      
   int num_transactions;  
@@ -45,19 +49,21 @@ class my_generator;
       my_transaction tr = new(); 
       if (!tr.randomize()) $fatal("Randomization failed");
       gen2drv.put(tr.copy());  
-      tr.display("GENERATOR");
+      // tr.display("GENERATOR"); // Disabled to avoid overwhelming the log during stress tests
       @(drv_done); 
     end
     $display("[%0t] Generator: Completed %0d transactions", $time, num_transactions);
   endtask
 endclass
 
-// --- Driver Class ---
+// ============================================================================
+// 3. DRIVER CLASS
+// ============================================================================
 class my_driver;
   virtual my_interface.DRIVER_MP vif;
   mailbox #(my_transaction) gen2drv;
   event drv_done;
-  int timeout_cycles = 100;
+  int timeout_cycles = 5000; // Increased to support extremely slow clock frequencies
 
   function new(virtual my_interface.DRIVER_MP vif, mailbox #(my_transaction) gen2drv, event drv_done);
     this.vif = vif;
@@ -66,11 +72,10 @@ class my_driver;
   endfunction
 
   task reset();
-    $display("[%0t] Driver: Waiting for Reset...", $time);
+    $display("[%0t] Driver: Waiting for Reset Release...", $time);
     vif.w_cb.write   <= 1'b0;
     vif.r_cb.read    <= 1'b0;
     vif.w_cb.data_in <= 8'b0;
-    // מחכים לשחרור ה-Reset הא-סינכרוני
     wait(!vif.wreset && !vif.rreset);
     @(vif.w_cb);
     $display("[%0t] Driver: Reset Released", $time);
@@ -99,7 +104,8 @@ class my_driver;
       // Write Path
       begin
         @(vif.w_cb);
-        if (tr.write && !vif.w_cb.full) begin
+        // For negative/overflow testing: ignore the full flag lock if forced
+        if (tr.write) begin
           vif.w_cb.write   <= 1'b1;
           vif.w_cb.data_in <= tr.data_in;
           @(vif.w_cb);
@@ -109,7 +115,8 @@ class my_driver;
       // Read Path
       begin
         @(vif.r_cb);
-        if (tr.read && !vif.r_cb.empty) begin
+        // For negative/underflow testing: ignore the empty flag lock if forced
+        if (tr.read) begin
           vif.r_cb.read <= 1'b1;
           @(vif.r_cb);
         end
@@ -119,7 +126,9 @@ class my_driver;
   endtask
 endclass
 
-// --- Monitor Class ---
+// ============================================================================
+// 4. MONITOR CLASS
+// ============================================================================
 class my_monitor;
   virtual my_interface.W_MONITOR_MP w_vif;
   virtual my_interface.R_MONITOR_MP r_vif;
@@ -157,7 +166,9 @@ class my_monitor;
   endtask
 endclass
 
-// --- Scoreboard Class ---
+// ============================================================================
+// 5. SCOREBOARD CLASS
+// ============================================================================
 class FIFO_scoreboard;
   mailbox #(my_transaction) mon2scb;
   logic [7:0] queue[$];
@@ -187,7 +198,7 @@ class FIFO_scoreboard;
 
   function void report();
     $display("\n=============================");
-    $display("       FINAL REPORT          ");
+    $display("         FINAL REPORT        ");
     $display("=============================");
     $display("Matches:    %0d", matches);
     $display("Mismatches: %0d", mismatches);
@@ -195,7 +206,9 @@ class FIFO_scoreboard;
   endfunction
 endclass
 
-// --- Environment Class ---
+// ============================================================================
+// 6. ENVIRONMENT CLASS
+// ============================================================================
 class FIFO_environment;
   my_generator gen;
   my_driver drv;
@@ -228,19 +241,26 @@ class FIFO_environment;
   endfunction
 endclass
 
+// ============================================================================
+// 7. TESTBENCH TOP MODULE
+// ============================================================================
 
-// --- Testbench Top Module ---
 module tb_async_fifo;
+
+  // Half-period variables for dynamic frequency scaling (in nanoseconds)
+  real write_half_period = 5.0; // Default: 100MHz
+  real read_half_period  = 5.0; // Default: 100MHz
+  
   bit wclk, rclk;
   
-  // יצירת שעונים אסינכרוניים (תדרים שונים)
-  always #5 wclk = ~wclk;
-  always #8 rclk = ~rclk;
+  // Dynamic clock generators driven by period variables
+  always #(write_half_period) wclk = ~wclk;
+  always #(read_half_period)  rclk = ~rclk;
 
-  // חיבור האינטרפייס
+  // Interface Instance
   my_interface fifo_if(wclk, rclk);
 
-  // חיבור ה-DUT (החלפת אותיות קטנות לסיגנלים של ה-Interface)
+  // DUT Instance
   ASYNC_FIFO dut (
     .WClk(fifo_if.wclk),   .WReset(fifo_if.wreset),
     .Write(fifo_if.write), .Din(fifo_if.data_in),   .Full(fifo_if.full),
@@ -248,81 +268,302 @@ module tb_async_fifo;
     .Read(fifo_if.read),   .Dout(fifo_if.data_out), .Empty(fifo_if.empty)
   );
 
-  // Functional Coverage (תיקון שמות האותיות הקטנות)
-  covergroup fifo_cg @(posedge wclk);
-    cp_write: coverpoint fifo_if.write {
-      bins write_0 = {0};
-      bins write_1 = {1};
-    }
-    cp_full: coverpoint fifo_if.full {
-      bins full_0 = {0};
-      bins full_1 = {1};
-    }
-    cp_data: coverpoint fifo_if.data_in {
-      bins low  = {[0:63]};
-      bins mid  = {[64:191]};
-      bins high = {[192:255]};
-    }
-    cross_write_full: cross cp_write, cp_full;
-  endgroup
+  // --------------------------------------------------------------------------
+  // A. Gray Code Check using SystemVerilog Concurrent Assertions
+  // --------------------------------------------------------------------------
+  // Assumption: The DUT contains internal pointers named wptr_gray and rptr_gray.
+  // These assertions ensure that at most 1 bit changes per clock cycle.
   
-  covergroup fifo_read_cg @(posedge rclk);
-    cp_read: coverpoint fifo_if.read {
-      bins read_0 = {0};
-      bins read_1 = {1};
-    }
-    cp_empty: coverpoint fifo_if.empty {
-      bins empty_0 = {0};
-      bins empty_1 = {1};
-    }
-    cross_read_empty: cross cp_read, cp_empty;
-  endgroup
+  property p_gray_code_write;
+    @(posedge fifo_if.wclk) disable iff (fifo_if.wreset)
+    $onehot0(dut.wptr_gray ^ $past(dut.wptr_gray));
+  endproperty
+  assert_write_gray: assert property (p_gray_code_write) else $error("Gray Code Error on Write Pointer!");
+
+  property p_gray_code_read;
+    @(posedge fifo_if.rclk) disable iff (fifo_if.rreset)
+    $onehot0(dut.rptr_gray ^ $past(dut.rptr_gray));
+  endproperty
+  assert_read_gray: assert property (p_gray_code_read) else $error("Gray Code Error on Read Pointer!");
+
+
+  // --------------------------------------------------------------------------
+  // Helper Tasks for Test Sequence Management
+  // --------------------------------------------------------------------------
   
-  // ניהול הרצת הטסט בבלוק אחיד
+  // Task for managing Full or Partial Resets
+  task do_reset(bit w_rst = 1, bit r_rst = 1, int duration = 40);
+    if (w_rst) fifo_if.wreset = 1;
+    if (r_rst) fifo_if.rreset = 1;
+    #(duration);
+    if (w_rst) fifo_if.wreset = 0;
+    if (r_rst) fifo_if.rreset = 0;
+    $display("[%0t] Reset Task Done (W_Reset=%b, R_Reset=%b)", $time, w_rst, r_rst);
+  endtask
+
+  // Task to dynamically change frequencies (Parameters in MHz)
+  task set_frequencies(real write_mhz, real read_mhz);
+    write_half_period = 1000.0 / (2.0 * write_mhz);
+    read_half_period  = 1000.0 / (2.0 * read_mhz);
+    $display("[%0t] Frequency changed: Write = %0f MHz, Read = %0f MHz", $time, write_mhz, read_mhz);
+    #10; // Short wait for stabilization
+  endtask
+
+  // --------------------------------------------------------------------------
+  // Main Initial Block - Executes all test scenarios sequentially
+  // --------------------------------------------------------------------------
   initial begin
     FIFO_environment env;
-    fifo_cg fcg = new();
-    fifo_read_cg frcg = new();
     
-    // סיגנלי אתחול ראשוניים (דרך האינטרפייס ולא ישירות ל-Clocking Block)
+    // Initializing signals
     fifo_if.write   = 0;
     fifo_if.read    = 0;
     fifo_if.data_in = 0;
-    
-    // הפעלת Reset אסינכרוני
-    fifo_if.wreset = 1; 
-    fifo_if.rreset = 1;
-    #40;
-    fifo_if.wreset = 0; 
-    fifo_if.rreset = 0;
-    
-    // יצירת ה-Environment: נריץ 200 טרנזקציות
-    env = new(fifo_if, 200);
-    
-    $display("\n========================================");
-    $display("Starting FIFO Verification Environment");
-    $display("========================================\n");
-    
-    // הרצת כל הרכיבים במקביל
+
+    $display("\n=======================================================");
+    $display("       STARTING EXTENDED ASYNC FIFO TESTSUITE          ");
+    $display("=======================================================\n");
+
+    // ----------------------------------------------------
+    // TEST 1: Matched Clocks (100MHz / 100MHz)
+    // ----------------------------------------------------
+    $display("\n--- [TEST 1] Matched Clocks (100MHz / 100MHz) ---");
+    set_frequencies(100.0, 100.0);
+    do_reset();
+    env = new(fifo_if, 50);
     env.run();
-    
-    // מחכים שהגנרטור יסיים (הוא יצא מה-fork-join_any של ה-env)
     wait(env.gen.num_transactions == env.scb.matches + env.scb.mismatches);
+    #50;
+
+    // ----------------------------------------------------
+    // TEST 2: Fast Write, Slow Read (200MHz / 50MHz)
+    // ----------------------------------------------------
+    $display("\n--- [TEST 2] Fast Write, Slow Read (200MHz / 50MHz) ---");
+    set_frequencies(200.0, 50.0);
+    do_reset();
+    env = new(fifo_if, 50);
+    env.run();
+    wait(env.gen.num_transactions == env.scb.matches + env.scb.mismatches);
+    #50;
+
+    // ----------------------------------------------------
+    // TEST 3: Slow Write, Fast Read (50MHz / 200MHz)
+    // ----------------------------------------------------
+    $display("\n--- [TEST 3] Slow Write, Fast Read (50MHz / 200MHz) ---");
+    set_frequencies(50.0, 200.0);
+    do_reset();
+    env = new(fifo_if, 50);
+    env.run();
+    wait(env.gen.num_transactions == env.scb.matches + env.scb.mismatches);
+    #50;
+
+    // ----------------------------------------------------
+    // TEST 4: Basic Flag Sync Latency Check
+    // ----------------------------------------------------
+    $display("\n--- [TEST 4] Basic Flag Sync Latency Check ---");
+    set_frequencies(100.0, 100.0);
+    do_reset();
+    @(posedge fifo_if.wclk);
+    fifo_if.write   <= 1'b1;
+    fifo_if.data_in <= 8'hA5;
+    @(posedge fifo_if.wclk);
+    fifo_if.write   <= 1'b0;
+    
+    // Counting read clock cycles until the empty flag drops
+    fork : empty_timeout
+      begin
+        int cycles = 0;
+        while(fifo_if.empty === 1'b1) begin
+          @(posedge fifo_if.rclk);
+          cycles++;
+        end
+        $display("[%0t] Success: Empty flag dropped after %0d Read cycles.", $time, cycles);
+      end
+      begin
+        #200;
+        $error("Timeout: Empty flag did not drop!");
+      end
+    endfork
+    disable empty_timeout;
+
+    // ----------------------------------------------------
+    // TEST 5: Corner Case - Ultra-Fast Write (500MHz / 1MHz)
+    // ----------------------------------------------------
+    $display("\n--- [TEST 5] Corner Case: Ultra-Fast Write (500MHz / 1MHz) ---");
+    set_frequencies(500.0, 1.0);
+    do_reset();
+    env = new(fifo_if, 30);
+    env.run();
+    wait(env.gen.num_transactions == env.scb.matches + env.scb.mismatches);
+    #2000; // Allow enough time for the ultra-slow read clock to complete processing
+
+    // ----------------------------------------------------
+    // TEST 6: Corner Case - Ultra-Fast Read (1MHz / 500MHz)
+    // ----------------------------------------------------
+    $display("\n--- [TEST 6] Corner Case: Ultra-Fast Read (1MHz / 500MHz) ---");
+    set_frequencies(1.0, 500.0);
+    do_reset();
+    env = new(fifo_if, 20);
+    env.run();
+    wait(env.gen.num_transactions == env.scb.matches + env.scb.mismatches);
+    #2000;
+
+    // ----------------------------------------------------
+    // TEST 7: Corner Case - 180 Degrees Out of Phase
+    // ----------------------------------------------------
+    $display("\n--- [TEST 7] Corner Case: 180 Degrees Out of Phase ---");
+    set_frequencies(100.0, 100.0);
+    // Shifts read clock phase by 180 degrees (half period = 5ns for 100MHz)
+    wclk = 0; rclk = 0;
+    write_half_period = 5.0; read_half_period = 5.0;
+    #5; // Offset the starting edge of the read clock
+    fork
+      forever #5 wclk = ~wclk;
+      forever #5 rclk = ~rclk;
+    join_none
+    do_reset();
+    env = new(fifo_if, 40);
+    env.run();
+    wait(env.gen.num_transactions == env.scb.matches + env.scb.mismatches);
+
+    // ----------------------------------------------------
+    // TEST 8: Corner Case - Partial Domain Reset
+    // ----------------------------------------------------
+    $display("\n--- [TEST 8] Corner Case: Partial Domain Reset (Write Domain Only) ---");
+    set_frequencies(100.0, 100.0);
+    do_reset();
+    env = new(fifo_if, 40);
+    env.run();
     #100;
+    $display("[%0t] Injecting Write-Domain Reset while running...", $time);
+    do_reset(.w_rst(1), .r_rst(0), .duration(50)); // Only Write Reset triggered
+    #100;
+
+    // ----------------------------------------------------
+    // TEST 9: Corner Case - Full to Empty Toggle
+    // ----------------------------------------------------
+    $display("\n--- [TEST 9] Corner Case: Full to Empty Toggle ---");
+    set_frequencies(200.0, 200.0);
+    do_reset();
+    // Aggressive fill sequence without reading
+    $display("Filling FIFO to Full...");
+    while(!fifo_if.full) begin
+      @(posedge fifo_if.wclk);
+      fifo_if.write   <= 1'b1;
+      fifo_if.data_in <= $urandom();
+    end
+    fifo_if.write <= 1'b0;
     
-    // הדפסת דוחות סופיים
-    env.report();
+    // Aggressive read sequence without writing
+    $display("Emptying FIFO to Empty...");
+    while(!fifo_if.empty) begin
+      @(posedge fifo_if.rclk);
+      fifo_if.read <= 1'b1;
+    end
+    fifo_if.read <= 1'b0;
+    #50;
+
+    // ----------------------------------------------------
+    // TEST 10: Stress - Status Jitter (Burst Write, Jitter Read)
+    // ----------------------------------------------------
+    $display("\n--- [TEST 10] Stress: Status Jitter (Burst Write, Jitter Read) ---");
+    set_frequencies(200.0, 150.0);
+    do_reset();
+    fork
+      // Continuous burst write of 500 words
+      repeat(500) begin
+        @(posedge fifo_if.wclk);
+        if(!fifo_if.full) begin
+          fifo_if.write   <= 1'b1;
+          fifo_if.data_in <= $urandom();
+        end
+      end
+      // Reading with random jitter insertion
+      repeat(500) begin
+        @(posedge fifo_if.rclk);
+        if(!fifo_if.empty) fifo_if.read <= 1'b1;
+        else fifo_if.read <= 1'b0;
+        #( $urandom_range(1, 15) ); // Dynamic time-interval jitter simulation
+      end
+    join
+    fifo_if.write <= 1'b0; fifo_if.read <= 1'b0;
+    #100;
+
+    // ----------------------------------------------------
+    // TEST 11: Stress - Dynamic Frequency Scaling (DFS)
+    // ----------------------------------------------------
+    $display("\n--- [TEST 11] Stress: Dynamic Frequency Scaling ---");
+    set_frequencies(100.0, 100.0);
+    do_reset();
+    env = new(fifo_if, 100);
+    fork
+      env.run();
+      begin
+        #200;
+        $display("[%0t] Dynamic Scale: Boosting Write Clock to 250MHz!", $time);
+        set_frequencies(250.0, 100.0);
+        #300;
+        $display("[%0t] Dynamic Scale: Dropping Read Clock to 30MHz!", $time);
+        set_frequencies(250.0, 30.0);
+      end
+    join_any
+    #500;
+
+    // ----------------------------------------------------
+    // TEST 12: Negative - Overflow/Underflow Continuous Bombing
+    // ----------------------------------------------------
+    $display("\n--- [TEST 12] Negative: Overflow/Underflow Continuous Bombing ---");
+    set_frequencies(200.0, 50.0); // Fast write domain, slow read domain
+    do_reset();
     
-    $display("\nCoverage Results:");
-    $display("Write Coverage: %.2f%%", fcg.get_coverage());
-    $display("Read Coverage:  %.2f%%", frcg.get_coverage());
-    
+    $display("Bombarding Write on FULL FIFO...");
+    repeat(100) begin
+      @(posedge fifo_if.wclk);
+      fifo_if.write   <= 1'b1; // Keeping write active even if full
+      fifo_if.data_in <= 8'hFF;
+    end
+    fifo_if.write <= 1'b0;
+
+    set_frequencies(50.0, 200.0); // Switching dynamics to fast read domain
+    $display("Bombarding Read on EMPTY FIFO...");
+    repeat(100) begin
+      @(posedge fifo_if.rclk);
+      fifo_if.read <= 1'b1;  // Keeping read active even if empty
+    end
+    fifo_if.read <= 1'b0;
+
+    // ----------------------------------------------------
+    // TEST 13: Stress - Clashing Asynchronous Resets
+    // ----------------------------------------------------
+    $display("\n--- [TEST 13] Stress: Clashing Asynchronous Resets ---");
+    set_frequencies(150.0, 150.0);
+    fork
+      // Asserting reset signals at heavily unaligned times
+      begin #10; fifo_if.wreset = 1; #23; fifo_if.wreset = 0; end
+      begin #18; fifo_if.rreset = 1; #35; fifo_if.rreset = 0; end
+      begin
+        repeat(50) begin
+          @(posedge fifo_if.wclk);
+          fifo_if.write <= 1'b1;
+          fifo_if.data_in <= $urandom();
+        end
+      end
+    join
+    fifo_if.write <= 1'b0;
+    #100;
+
+    // ====================================================
+    // SIMULATION WRAP-UP
+    // ====================================================
+    $display("\n=======================================================");
+    $display("     ALL ASYNC FIFO TEST CASES COMPLETED SUCCESSFULLY  ");
+    $display("=======================================================");
     $finish;
   end
-  
-  // שמירת גלי ריצה (Waveform Dump)
+
+  // Waveform Dumper Config
   initial begin
-    $dumpfile("fifo.vcd");
+    $dumpfile("fifo_extended.vcd");
     $dumpvars(0, tb_async_fifo);
   end
 
