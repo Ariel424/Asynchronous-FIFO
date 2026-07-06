@@ -46,10 +46,9 @@ class my_generator;
   int num_transactions;  
   event drv_done;
   
-  function new(mailbox #(my_transaction) gen2drv, event drv_done, int num_transactions = 100);
+  function new(mailbox #(my_transaction) gen2drv, event drv_done);
     this.gen2drv = gen2drv; 
     this.drv_done = drv_done;
-    this.num_transactions = num_transactions;
   endfunction
   
   task run();
@@ -73,11 +72,15 @@ class my_driver;
   int timeout_cycles = 5000; 
 
   function new(virtual my_interface.DRIVER_MP vif, mailbox #(my_transaction) gen2drv, event drv_done);
-    this.vif = vif; this.gen2drv = gen2drv; this.drv_done = drv_done;
+    this.vif = vif; 
+    this.gen2drv = gen2drv; 
+    this.drv_done = drv_done;
   endfunction
 
   task reset();
-    vif.w_cb.write <= 0; vif.r_cb.read <= 0; vif.w_cb.data_in <= 0;
+    vif.w_cb.write <= 0;
+    vif.r_cb.read <= 0;
+    vif.w_cb.data_in <= 0;
     wait(!vif.wreset && !vif.rreset);
     @(vif.w_cb);
   endtask
@@ -88,7 +91,7 @@ class my_driver;
       my_transaction tr;
       gen2drv.get(tr);
       
-      fork : watchdog_block
+      fork: watchdog_block
         execute_transaction(tr);
         begin
           repeat(timeout_cycles) @(vif.w_cb);
@@ -132,7 +135,9 @@ class my_monitor;
   mailbox #(my_transaction) mon2scb;
 
   function new(virtual my_interface.W_MONITOR_MP w_vif, virtual my_interface.R_MONITOR_MP r_vif, mailbox #(my_transaction) mon2scb);
-    this.w_vif = w_vif; this.r_vif = r_vif; this.mon2scb = mon2scb;
+    this.w_vif = w_vif; 
+    this.r_vif = r_vif;
+    this.mon2scb = mon2scb;
   endfunction
 
   task run();
@@ -141,7 +146,9 @@ class my_monitor;
         @(w_vif.w_cb);
         if (w_vif.w_cb.write && !w_vif.w_cb.full) begin
           my_transaction tr = new();
-          tr.data_in = w_vif.w_cb.data_in; tr.write = 1; tr.full = w_vif.w_cb.full;
+          tr.data_in = w_vif.w_cb.data_in;
+          tr.write = 1;
+          tr.full = w_vif.w_cb.full;
           mon2scb.put(tr);
         end
       end
