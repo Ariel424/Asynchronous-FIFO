@@ -13,9 +13,12 @@ class my_transaction;
   bit [7:0] data_out;
   bit full, empty;
 
+  int write_weight = 50;
+  int read_weight = 50;
+
   constraint c_write_read {
-    write dist {1 := 70, 0 := 30};
-    read  dist {1 := 70, 0 := 30};
+    write dist {1 := write_weight, 0 := (100 - write_weight};
+    read dist {1 := read_weight, 0 := (100 - read_weight};
   }
 
   function my_transaction copy();
