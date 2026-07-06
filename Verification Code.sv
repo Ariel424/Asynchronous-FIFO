@@ -82,7 +82,7 @@ class my_driver;
     vif.r_cb.read <= 0;
     vif.w_cb.data_in <= 0;
     wait(!vif.wreset && !vif.rreset);
-    @(vif.w_cb);
+    repeat (5) begin @(vif.w_cb);
   endtask
 
   task run();
