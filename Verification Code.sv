@@ -225,7 +225,10 @@ class FIFO_environment;
 
   task run();
     fork
-      gen.run(); drv.run(); mon.run(); scb.run();
+      gen.run(); 
+      drv.run();
+      mon.run();
+      scb.run();
     join_any
   endtask
   
