@@ -17,8 +17,8 @@ class my_transaction;
   int read_weight = 50;
 
   constraint c_write_read {
-    write dist {1 := write_weight, 0 := (100 - write_weight};
-    read dist {1 := read_weight, 0 := (100 - read_weight};
+    write dist {1 := write_weight, 0 := (100 - write_weight)};
+    read dist {1 := read_weight, 0 := (100 - read_weight)};
   }
 
   function my_transaction copy();
