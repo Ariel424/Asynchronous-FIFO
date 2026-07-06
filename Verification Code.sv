@@ -23,8 +23,12 @@ class my_transaction;
 
   function my_transaction copy();
     my_transaction tr = new();
-    tr.data_in  = this.data_in; tr.write = this.write; tr.read = this.read;
-    tr.data_out = this.data_out; tr.full = this.full;   tr.empty = this.empty;
+    tr.data_in  = this.data_in;
+    tr.write = this.write;
+    tr.read = this.read;
+    tr.data_out = this.data_out;
+    tr.full = this.full; 
+    tr.empty = this.empty;
     return tr;
   endfunction
 
