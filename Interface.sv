@@ -53,27 +53,4 @@ interface my_interface (input logic wclk, input logic rclk);
     endproperty
     assert_no_read_empty: assert property(p_no_read_when_empty) else $error("[SVA ERROR] Read occurred when FIFO was empty");
     
-    // ========================================================================
-    // ARIEL TOPAZ - DVFS FUNCTIONAL COVERAGE MATRIX
-    // ========================================================================
-    covergroup cg_dvfs_cdc_matrix @(posedge wclk or posedge rclk);
-        option.per_instance = 1;
-        option.name = "Ariel_DVFS_CDC_Coverage";
-
-        cp_write_frequency: coverpoint w_freq_mode {
-            bins slow    = {2'b00};
-            bins nominal = {2'b01};
-            bins fast    = {2'b10};
-        }
-        cp_read_frequency: coverpoint r_freq_mode {
-            bins slow    = {2'b00};
-            bins nominal = {2'b01};
-            bins fast    = {2'b10};
-        }
-        // Cross Coverage: מוודא שבדקנו את כל הקומבינציות האפשריות של יחסי השעונים (למשל כתיבה מהירה מול קריאה איטית)
-        cross_dvfs_matrix: cross cp_write_frequency, cp_read_frequency;
-    endgroup
-
-    cg_dvfs_cdc_matrix cg_inst = new();
-        
 endinterface
