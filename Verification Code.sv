@@ -1,10 +1,4 @@
 // ============================================================================
-// PROJECT: ASYNCHRONOUS FIFO VERIFICATION BENCHMARK
-// ENGINEER: ARIEL TOPAZ
-// ARCHITECTURE: CLEAN TARGETED CDC ENVIRONMENT (DVFS, JITTER & RESET CLASH)
-// ============================================================================
-
-// ============================================================================
 // 1. TRANSACTION CLASS
 // ============================================================================
 class my_transaction;
@@ -18,21 +12,21 @@ class my_transaction;
 
   constraint c_write_read {
     write dist {1 := write_weight, 0 := (100 - write_weight)};
-    read dist {1 := read_weight, 0 := (100 - read_weight)};
+    read  dist {1 := read_weight,  0 := (100 - read_weight)};
   }
 
   function my_transaction copy();
     my_transaction tr = new();
     tr.data_in  = this.data_in;
-    tr.write = this.write;
-    tr.read = this.read;
+    tr.write    = this.write;
+    tr.read     = this.read;
     tr.data_out = this.data_out;
-    tr.full = this.full; 
-    tr.empty = this.empty;
+    tr.full     = this.full; 
+    tr.empty    = this.empty;
     return tr;
   endfunction
 
-  function void display(string tag = "");
+  function void display(input string tag = "");
     $display("[%0t] %s | W=%0b R=%0b Din=0x%0h Dout=0x%0h F=%0b E=%0b", 
              $time, tag, write, read, data_in, data_out, full, empty);
   endfunction
@@ -42,13 +36,14 @@ endclass
 // 2. GENERATOR CLASS
 // ============================================================================
 class my_generator;
-  mailbox #(my_transaction) gen2drv;      
+  mailbox #(my_transaction) gen2drv;    
   int num_transactions;  
   event drv_done;
   
-  function new(mailbox #(my_transaction) gen2drv, event drv_done);
+  function new(mailbox #(my_transaction) gen2drv, event drv_done, int num_transactions);
     this.gen2drv = gen2drv; 
     this.drv_done = drv_done;
+    this.num_transactions = num_transactions;
   endfunction
   
   task run();
@@ -82,8 +77,7 @@ class my_driver;
     vif.r_cb.read <= 0;
     vif.w_cb.data_in <= 0;
     wait(!vif.wreset && !vif.rreset);
-    repeat (5) begin @(vif.w_cb);
-    end
+    repeat (5) begin @(vif.w_cb); end
   endtask
 
   task run();
@@ -128,36 +122,36 @@ class my_driver;
 endclass
 
 // ============================================================================
-// 4. MONITOR CLASS
+// 4. MONITOR CLASS (FIXED)
 // ============================================================================
 class my_monitor;
-  virtual my_interface.W_MONITOR_MP w_vif;
-  virtual my_interface.R_MONITOR_MP r_vif;
+  virtual my_interface vif; // שימוש ב-interface הראשי במקום modport מוגבל
   mailbox #(my_transaction) mon2scb;
 
-  function new(virtual my_interface.W_MONITOR_MP w_vif, virtual my_interface.R_MONITOR_MP r_vif, mailbox #(my_transaction) mon2scb);
-    this.w_vif = w_vif; 
-    this.r_vif = r_vif;
+  function new(virtual my_interface vif, mailbox #(my_transaction) mon2scb);
+    this.vif = vif; 
     this.mon2scb = mon2scb;
   endfunction
 
   task run();
     fork
       forever begin // Write Monitor
-        @(w_vif.w_cb);
-        if (w_vif.w_cb.write && !w_vif.w_cb.full) begin
+        @(posedge vif.wclk);
+        if (vif.write && !vif.full && !vif.wreset) begin
           my_transaction tr = new();
-          tr.data_in = w_vif.w_cb.data_in;
-          tr.write = 1;
-          tr.full = w_vif.w_cb.full;
+          tr.data_in = vif.data_in;
+          tr.write   = 1;
+          tr.full    = vif.full;
           mon2scb.put(tr);
         end
       end
       forever begin // Read Monitor
-        @(r_vif.r_cb);
-        if (r_vif.r_cb.read && !r_vif.r_cb.empty) begin
+        @(posedge vif.rclk);
+        if (vif.read && !vif.empty && !vif.rreset) begin
           my_transaction tr = new();
-          tr.data_out = r_vif.r_cb.data_out; tr.read = 1; tr.empty = r_vif.r_cb.empty;
+          tr.data_out = vif.data_out; 
+          tr.read     = 1; 
+          tr.empty    = vif.empty;
           mon2scb.put(tr);
         end
       end
@@ -212,17 +206,18 @@ class FIFO_environment;
   my_monitor mon;
   FIFO_scoreboard scb;
   mailbox #(my_transaction) g2d, m2s;
-  event d_done;
   virtual my_interface vif;
+  event drv_done;
 
-  function new(virtual my_interface vif, int num);
-    this.vif = vif;
-    g2d = new(); m2s = new();
-    gen = new(g2d, d_done, num);
-    drv = new(vif.DRIVER_MP, g2d, d_done);
-    mon = new(vif.W_MONITOR_MP, vif.R_MONITOR_MP, m2s);
-    scb = new(m2s);
-  endfunction
+// בתוך FIFO_environment::new
+function new(virtual my_interface vif, int num);
+  this.vif = vif;
+  g2d = new(); m2s = new();
+  gen = new(g2d, drv_done, num);
+  drv = new(vif.DRIVER_MP, g2d, drv_done);
+  mon = new(vif, m2s); // <--- מעבירים את vif ישירות
+  scb = new(m2s);
+endfunction
 
   task run();
     fork
@@ -238,7 +233,6 @@ class FIFO_environment;
   endfunction
 endclass
 
-
 // ============================================================================
 // 7. TESTBENCH TOP MODULE
 // ============================================================================
@@ -248,7 +242,7 @@ module tb_async_fifo;
   bit  w_jitter_en = 0, r_jitter_en = 0;
   bit  wclk, rclk;
   
-  // Dynamic Clock Generators with integrated 15% Jitter Injection Engine
+  // Dynamic Clock Generators
   always begin
     real j = w_jitter_en ? (real'($urandom())/4294967295.0 - 0.5) * (write_base_period * 0.3) : 0;
     #(write_base_period + j) wclk = ~wclk;
@@ -262,16 +256,16 @@ module tb_async_fifo;
   // Interface & DUT Instantiation
   my_interface fifo_if(wclk, rclk);
 
-  ASYNC_FIFO dut (
-    .WClk(fifo_if.wclk),   .WReset(fifo_if.wreset),
-    .Write(fifo_if.write), .Din(fifo_if.data_in),   .Full(fifo_if.full),
-    .RClk(fifo_if.rclk),   .RReset(fifo_if.rreset),
-    .Read(fifo_if.read),   .Dout(fifo_if.data_out), .Empty(fifo_if.empty)
+  async_fifo dut (
+    .wclk(fifo_if.wclk),     .wreset(fifo_if.wreset),
+    .write(fifo_if.write),   .din(fifo_if.data_in),   .full(fifo_if.full),
+    .rclk(fifo_if.rclk),     .rreset(fifo_if.rreset),
+    .read(fifo_if.read),     .dout(fifo_if.data_out), .empty(fifo_if.empty)
   );
 
   // Concurrent Gray Code SVA Assertions
-  assert_write_gray: assert property (@(posedge fifo_if.wclk) disable iff (fifo_if.wreset) $onehot0(dut.wptr_gray ^ $past(dut.wptr_gray))) else $error("Gray Code Error on Write Pointer!");
-  assert_read_gray:  assert property (@(posedge fifo_if.rclk) disable iff (fifo_if.rreset) $onehot0(dut.rptr_gray ^ $past(dut.rptr_gray))) else $error("Gray Code Error on Read Pointer!");
+  assert_write_gray: assert property (@(posedge fifo_if.wclk) disable iff (fifo_if.wreset) $onehot0(dut.wgray ^ $past(dut.wgray))) else $error("Gray Code Error on Write Pointer!");
+  assert_read_gray:  assert property (@(posedge fifo_if.rclk) disable iff (fifo_if.rreset) $onehot0(dut.rgray ^ $past(dut.rgray))) else $error("Gray Code Error on Read Pointer!");
 
   // Configuration Helper Tasks
   task do_reset(int duration = 40);
@@ -283,28 +277,22 @@ module tb_async_fifo;
   task set_frequencies(real write_mhz, real read_mhz);
     write_base_period = 1000.0 / (2.0 * write_mhz);
     read_base_period  = 1000.0 / (2.0 * read_mhz);
-    // Optional Tracking Flags for Interface Coverage Matrix
     fifo_if.w_freq_mode = (write_mhz <= 20.0) ? 2'b00 : (write_mhz >= 400.0) ? 2'b10 : 2'b01;
     fifo_if.r_freq_mode = (read_mhz <= 20.0)  ? 2'b00 : (read_mhz >= 400.0)  ? 2'b10 : 2'b01;
     $display("[%0t] [DVFS] Frequencies set to: Write = %0f MHz, Read = %0f MHz", $time, write_mhz, read_mhz);
   endtask
 
-  // --------------------------------------------------------------------------
-  // MAIN INITIAL BLOCK - THREE SELECTED HIGH-VALUE CDC VECTORS
-  // --------------------------------------------------------------------------
+  // Main Testsuite
   initial begin
     FIFO_environment env;
     {fifo_if.write, fifo_if.read, fifo_if.data_in} = 0;
 
     $display("\n=======================================================");
-    $display("   STARTING ARIEL TOPAZ PRODUCTION TESTSUITE (3 CORE CDC)");
+    $display("   STARTING PRODUCTION TESTSUITE (3 CORE CDC VECTORS)");
     $display("=======================================================\n");
 
-    // ----------------------------------------------------
-    // VECTOR 1: ADVANCED DVFS MIXED MATRIX RUN
-    // ----------------------------------------------------
+    // VECTOR 1
     $display("\n--- [VECTOR 1] DVFS Matrix Functional Stress ---");
-    
     $display("Scenario A: Fast Write (500MHz) vs. Slow Read (10MHz)");
     set_frequencies(500.0, 10.0); do_reset();
     env = new(fifo_if, 40); fork env.run(); join_any #200; 
@@ -313,27 +301,23 @@ module tb_async_fifo;
     set_frequencies(10.0, 500.0); do_reset();
     env = new(fifo_if, 40); fork env.run(); join_any #500;
 
-    // ----------------------------------------------------
-    // VECTOR 2: AGGRESSIVE PHYSICAL CDC JITTER BOMBING
-    // ----------------------------------------------------
+    // VECTOR 2
     $display("\n--- [VECTOR 2] CDC Physical Stress: Dynamic Clock Jitter Active ---");
-    set_frequencies(133.33, 87.5); do_reset(); // Shifting phases naturally
+    set_frequencies(133.33, 87.5); do_reset();
     
-    {w_jitter_en, r_jitter_en} = 2'b11; // Enable jitter engines
+    {w_jitter_en, r_jitter_en} = 2'b11;
     env = new(fifo_if, 120); 
     fork env.run(); join_any 
     #500;
-    {w_jitter_en, r_jitter_en} = 2'b00; // Disable jitter for stability shutdown
+    {w_jitter_en, r_jitter_en} = 2'b00;
 
-    // ----------------------------------------------------
-    // VECTOR 3: STRESS - ASYNCHRONOUS RESET CLASHING
-    // ----------------------------------------------------
+    // VECTOR 3
     $display("\n--- [VECTOR 3] Stress: Clashing Asynchronous Resets ---");
     set_frequencies(150.0, 150.0); do_reset();
     
     fork
-      begin #12; fifo_if.wreset = 1; #25; fifo_if.wreset = 0; end // Random write reset pulse
-      begin #20; fifo_if.rreset = 1; #38; fifo_if.rreset = 0; end // Overlapping read reset pulse
+      begin #12; fifo_if.wreset = 1; #25; fifo_if.wreset = 0; end
+      begin #20; fifo_if.rreset = 1; #38; fifo_if.rreset = 0; end
       begin
         repeat(60) begin
           @(posedge fifo_if.wclk);
@@ -345,12 +329,10 @@ module tb_async_fifo;
     join
     #200;
 
-    // Sim Complete
     env.report();
     $finish;
   end
 
-  // Waveform Dumper Config
   initial begin
     $dumpfile("fifo_targeted_cdc.vcd");
     $dumpvars(0, tb_async_fifo);
