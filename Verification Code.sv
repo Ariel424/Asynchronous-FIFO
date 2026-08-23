@@ -171,7 +171,7 @@ endclass
 class FIFO_scoreboard;
   mailbox #(my_transaction) mon2scb;
   logic [7:0] queue[$];
-  int matches, mismatches;
+  int match_count, mismatches;
 
   function new(mailbox #(my_transaction) mon2scb);
     this.mon2scb = mon2scb;
@@ -184,7 +184,7 @@ class FIFO_scoreboard;
       if (tr.write) queue.push_back(tr.data_in);
       if (tr.read && queue.size() > 0) begin
         logic [7:0] exp = queue.pop_front();
-        if (tr.data_out === exp) matches++;
+        if (tr.data_out === exp) match_count++;
         else begin 
           $error("Mismatch! Exp: %h, Got: %h", exp, tr.data_out);
           mismatches++;
@@ -197,7 +197,7 @@ class FIFO_scoreboard;
     $display("\n=============================");
     $display("         FINAL REPORT        ");
     $display("=============================");
-    $display("Matches:    %0d", matches);
+    $display("Matches:    %0d", match_count);
     $display("Mismatches: %0d", mismatches);
     $display("=============================\n");
   endfunction
