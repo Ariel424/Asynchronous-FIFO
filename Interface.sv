@@ -12,14 +12,14 @@ interface my_interface (input logic wclk, input logic rclk);
 
     // --- Clocking Blocks (Slightly reduced Skew for Ultra-High Frequencies support) ---
     clocking w_cb @(posedge wclk);
-        default input #100ps output #100ps; 
+        default input #1step output #100ps; 
         output write;
         output data_in;
         input  full;
     endclocking
 
     clocking r_cb @(posedge rclk);
-        default input #100ps output #100ps;
+        default input #1step output #100ps;
         output read;
         input  data_out;
         input  empty;
