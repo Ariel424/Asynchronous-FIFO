@@ -1,4 +1,6 @@
-// asynchronous fifo module
+// ============================================================================
+// 8. ASYNC FIFO MODULE (DUT)
+// ============================================================================
 module async_fifo (
     input  logic       wclk, wreset, write,
     input  logic [7:0] din,
@@ -50,7 +52,7 @@ module async_fifo (
     end
   end
   
-  assign full = (wgray == {~rgrays2[4:3], rgrays2[2:0]});
+  assign full  = (wgray == {~rgrays2[4:3], rgrays2[2:0]});
   assign empty = (rgray == wgrays2);
 
 endmodule
