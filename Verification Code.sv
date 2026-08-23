@@ -83,6 +83,7 @@ class my_driver;
     vif.w_cb.data_in <= 0;
     wait(!vif.wreset && !vif.rreset);
     repeat (5) begin @(vif.w_cb);
+    end
   endtask
 
   task run();
@@ -97,7 +98,7 @@ class my_driver;
           repeat(timeout_cycles) @(vif.w_cb);
           $error("Driver: Timeout reached!");
         end
-      endfork
+      join_any
       disable watchdog_block;
       -> drv_done;
     end
