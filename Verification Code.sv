@@ -198,6 +198,45 @@ class FIFO_scoreboard;
 endclass
 
 // ============================================================================
+// REFERENCE / GOLDEN MODEL
+// ============================================================================
+class fifo_reference_model #(parameter int DATA_WIDTH = 8, parameter int DEPTH = 16);
+  local bit [DATA_WIDTH-1:0] fifo_q[$];
+
+  // Push data into the model (Write Domain)
+  function bit push(bit [DATA_WIDTH-1:0] data);
+    if (is_full()) return 0; // Overflow protection
+    fifo_q.push_back(data);
+    return 1;
+  endfunction
+
+  // Pop data from the model (Read Domain)
+  function bit pop(output bit [DATA_WIDTH-1:0] data);
+    if (is_empty()) return 0; // Underflow protection
+    data = fifo_q.pop_front();
+    return 1;
+  endfunction
+
+  // Status checks
+  function bit is_full();
+    return (fifo_q.size() >= DEPTH);
+  endfunction
+
+  function bit is_empty();
+    return (fifo_q.size() == 0);
+  endfunction
+
+  function int get_count();
+    return fifo_q.size();
+  endfunction
+
+  // Reset model state
+  function void flush();
+    fifo_q.delete();
+  endfunction
+endclass
+
+// ============================================================================
 // 6. ENVIRONMENT CLASS
 // ============================================================================
 class FIFO_environment;
