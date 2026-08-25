@@ -55,4 +55,4 @@ module async_fifo (
   assign full  = (wgray == {~rgrays2[4:3], rgrays2[2:0]});
   assign empty = (rgray == wgrays2);
 
-endmodule
+endmodule  
