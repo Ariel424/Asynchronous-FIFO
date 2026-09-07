@@ -254,7 +254,7 @@ function new(virtual my_interface vif, int num);
   g2d = new(); m2s = new();
   gen = new(g2d, drv_done, num);
   drv = new(vif.DRIVER_MP, g2d, drv_done);
-  mon = new(vif, m2s); // <--- מעבירים את vif ישירות
+  mon = new(vif, m2s); 
   scb = new(m2s);
 endfunction
 
