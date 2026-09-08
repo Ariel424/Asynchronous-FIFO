@@ -122,10 +122,10 @@ class my_driver;
 endclass
 
 // ============================================================================
-// 4. MONITOR CLASS (FIXED)
+// 4. MONITOR CLASS 
 // ============================================================================
 class my_monitor;
-  virtual my_interface vif; // שימוש ב-interface הראשי במקום modport מוגבל
+  virtual my_interface vif; 
   mailbox #(my_transaction) mon2scb;
 
   function new(virtual my_interface vif, mailbox #(my_transaction) mon2scb);
