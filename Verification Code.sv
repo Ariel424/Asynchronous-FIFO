@@ -273,7 +273,7 @@ endfunction
 endclass
 
 // ============================================================================
-// 7. TESTBENCH TOP MODULE
+// 7. TESTBENCH TOP MODULE (SIMPLIFIED & CLEAN)
 // ============================================================================
 module tb_async_fifo;
 
@@ -281,18 +281,22 @@ module tb_async_fifo;
   bit  w_jitter_en = 0, r_jitter_en = 0;
   bit  wclk, rclk;
   
-  // Dynamic Clock Generators
+  // --------------------------------------------------------------------------
+  // 1. Clock Generators (Clean Jitter Logic)
+  // --------------------------------------------------------------------------
   always begin
-    real j = w_jitter_en ? (real'($urandom())/4294967295.0 - 0.5) * (write_base_period * 0.3) : 0;
+    real j = w_jitter_en ? (write_base_period * $urandom_range(-15, 15) / 100.0) : 0;
     #(write_base_period + j) wclk = ~wclk;
   end
 
   always begin
-    real j = r_jitter_en ? (real'($urandom())/4294967295.0 - 0.5) * (read_base_period * 0.3) : 0;
+    real j = r_jitter_en ? (read_base_period * $urandom_range(-15, 15) / 100.0) : 0;
     #(read_base_period + j) rclk = ~rclk;
   end
 
-  // Interface & DUT Instantiation
+  // --------------------------------------------------------------------------
+  // 2. DUT & Interface
+  // --------------------------------------------------------------------------
   my_interface fifo_if(wclk, rclk);
 
   async_fifo dut (
@@ -302,58 +306,64 @@ module tb_async_fifo;
     .read(fifo_if.read),     .dout(fifo_if.data_out), .empty(fifo_if.empty)
   );
 
-  // Concurrent Gray Code SVA Assertions
+  // Assertions
   assert_write_gray: assert property (@(posedge fifo_if.wclk) disable iff (fifo_if.wreset) $onehot0(dut.wgray ^ $past(dut.wgray))) else $error("Gray Code Error on Write Pointer!");
   assert_read_gray:  assert property (@(posedge fifo_if.rclk) disable iff (fifo_if.rreset) $onehot0(dut.rgray ^ $past(dut.rgray))) else $error("Gray Code Error on Read Pointer!");
 
-  // Configuration Helper Tasks
-  task do_reset(int duration = 40);
-    fifo_if.wreset = 1; fifo_if.rreset = 1;
-    #(duration);
-    fifo_if.wreset = 0; fifo_if.rreset = 0;
-  endtask
-
+  // --------------------------------------------------------------------------
+  // 3. Helper Tasks (Configuration & Execution)
+  // --------------------------------------------------------------------------
   task set_frequencies(real write_mhz, real read_mhz);
     write_base_period = 1000.0 / (2.0 * write_mhz);
     read_base_period  = 1000.0 / (2.0 * read_mhz);
     fifo_if.w_freq_mode = (write_mhz <= 20.0) ? 2'b00 : (write_mhz >= 400.0) ? 2'b10 : 2'b01;
-    fifo_if.r_freq_mode = (read_mhz <= 20.0)  ? 2'b00 : (read_mhz >= 400.0)  ? 2'b10 : 2'b01;
-    $display("[%0t] [DVFS] Frequencies set to: Write = %0f MHz, Read = %0f MHz", $time, write_mhz, read_mhz);
+    fifo_if.r_freq_mode = (read_mhz <= 20.0)  ? 2'b00 : (read_mhz >= 400.0)  ? 2 me10 : 2'b01;
   endtask
 
-  // Main Testsuite
+  // Task מרכזי שמריץ וקטור בדיקה שלם בשורה אחת
+  task run_vector(string name, real w_mhz, real r_mhz, int num_tx, bit jitter = 0, int post_delay = 200);
+    FIFO_environment env;
+    
+    $display("\n--- [VECTOR] %s (W:%0fMHz, R:%0fMHz, Jitter:%0b) ---", name, w_mhz, r_mhz, jitter);
+    set_frequencies(w_mhz, r_mhz);
+    
+    // Reset
+    fifo_if.wreset = 1; fifo_if.rreset = 1; #40;
+    fifo_if.wreset = 0; fifo_if.rreset = 0;
+
+    // Run Test
+    {w_jitter_en, r_jitter_en} = {jitter, jitter};
+    env = new(fifo_if, num_tx);
+    
+    fork env.run(); join_any
+    #(post_delay);
+    
+    {w_jitter_en, r_jitter_en} = 2'b00;
+  endtask
+
+  // --------------------------------------------------------------------------
+  // 4. Main Testsuite (Clean Procedural Flow)
+  // --------------------------------------------------------------------------
   initial begin
     FIFO_environment env;
     {fifo_if.write, fifo_if.read, fifo_if.data_in} = 0;
 
     $display("\n=======================================================");
-    $display("   STARTING PRODUCTION TESTSUITE (3 CORE CDC VECTORS)");
+    $display("       STARTING SIMPLIFIED CDC TESTSUITE");
     $display("=======================================================\n");
 
-    // VECTOR 1
-    $display("\n--- [VECTOR 1] DVFS Matrix Functional Stress ---");
-    $display("Scenario A: Fast Write (500MHz) vs. Slow Read (10MHz)");
-    set_frequencies(500.0, 10.0); do_reset();
-    env = new(fifo_if, 40); fork env.run(); join_any #200; 
+    // VECTOR 1: DVFS Matrix
+    run_vector("Vector 1A: Fast Write / Slow Read", 500.0, 10.0, 40, 0, 200);
+    run_vector("Vector 1B: Slow Write / Fast Read", 10.0, 500.0, 40, 0, 500);
 
-    $display("Scenario B: Slow Write (10MHz) vs. Fast Read (500MHz)");
-    set_frequencies(10.0, 500.0); do_reset();
-    env = new(fifo_if, 40); fork env.run(); join_any #500;
+    // VECTOR 2: Dynamic Jitter Stress
+    run_vector("Vector 2: Dynamic Clock Jitter Active", 133.33, 87.5, 120, 1, 500);
 
-    // VECTOR 2
-    $display("\n--- [VECTOR 2] CDC Physical Stress: Dynamic Clock Jitter Active ---");
-    set_frequencies(133.33, 87.5); do_reset();
+    // VECTOR 3: Clashing Asynchronous Resets
+    set_frequencies(150.0, 150.0);
+    fifo_if.wreset = 0; fifo_if.rreset = 0;
     
-    {w_jitter_en, r_jitter_en} = 2'b11;
-    env = new(fifo_if, 120); 
-    fork env.run(); join_any 
-    #500;
-    {w_jitter_en, r_jitter_en} = 2'b00;
-
-    // VECTOR 3
     $display("\n--- [VECTOR 3] Stress: Clashing Asynchronous Resets ---");
-    set_frequencies(150.0, 150.0); do_reset();
-    
     fork
       begin #12; fifo_if.wreset = 1; #25; fifo_if.wreset = 0; end
       begin #20; fifo_if.rreset = 1; #38; fifo_if.rreset = 0; end
@@ -368,6 +378,8 @@ module tb_async_fifo;
     join
     #200;
 
+    // Print summary from environment
+    env = new(fifo_if, 0); 
     env.report();
     $finish;
   end
