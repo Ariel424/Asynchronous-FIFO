@@ -273,7 +273,7 @@ endfunction
 endclass
 
 // ============================================================================
-// 7. TESTBENCH TOP MODULE (SIMPLIFIED & CLEAN)
+// 7. TESTBENCH TOP MODULE 
 // ============================================================================
 module tb_async_fifo;
 
@@ -282,7 +282,7 @@ module tb_async_fifo;
   bit  wclk, rclk;
   
   // --------------------------------------------------------------------------
-  // 1. Clock Generators (Clean Jitter Logic)
+  // 1. Clock Generators (jitter)
   // --------------------------------------------------------------------------
   always begin
     real j = w_jitter_en ? (write_base_period * $urandom_range(-15, 15) / 100.0) : 0;
